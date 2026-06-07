@@ -133,8 +133,9 @@ exec /usr/bin/sudo -A "$@"
 EOF
     chmod +x "$HELPERS_DIR/sudo"
 
-    # Exportar las variables para activar el wrapper
+    # Exportar las variables para activar el wrapper y limpiar la caché de comandos de Bash (hashing)
     export PATH="$HELPERS_DIR:$PATH"
+    hash -r
 fi
 
 # Mantener vivo el token de sudo en segundo plano
