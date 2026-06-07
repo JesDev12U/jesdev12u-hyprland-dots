@@ -74,13 +74,21 @@ echo -e "            ${YELLOW}\"Mis Dots de Hyprland forkeados de Caelestia\"${N
 echo '                 - Custom Clean POSIX Shell Installer -'
 echo -e "${NC}"
 
-# Preguntar sobre el respaldo al inicio
-echo -e "${BLUE}:: Configuración inicial${NC}"
-echo -ne "${CYAN}¿Deseas hacer un respaldo de tu carpeta ~/.config actual? [Y/n] ${NC}"
-read -r backup_choice
-BACKUP_CONFIG=1
-if [[ "$backup_choice" == "n" || "$backup_choice" == "N" ]]; then
-    BACKUP_CONFIG=0
+# Preguntar sobre el respaldo al inicio solo si existe la carpeta ~/.config
+BACKUP_CONFIG=0
+if [ -d "$CONFIG_DIR" ]; then
+    echo -e "${BLUE}:: Configuración inicial${NC}"
+    echo -ne "${CYAN}¿Deseas hacer un respaldo de tu carpeta ~/.config actual? [Y/n] ${NC}"
+    # Leer de /dev/tty para dar soporte a la ejecución mediante pipe (curl | bash)
+    if [ -t 0 ]; then
+        read -r backup_choice
+    else
+        read -r backup_choice < /dev/tty 2>/dev/null || backup_choice="y"
+    fi
+    BACKUP_CONFIG=1
+    if [[ "$backup_choice" == "n" || "$backup_choice" == "N" ]]; then
+        BACKUP_CONFIG=0
+    fi
 fi
 
 # Solicitar privilegios de administrador al inicio
@@ -428,7 +436,11 @@ step_3() {
         success "Copia de seguridad completada." >> "$LOG_FILE" 2>&1
         return 0
     else
-        log "Respaldo de ~/.config omitido por elección del usuario." >> "$LOG_FILE" 2>&1
+        if [ ! -d "$CONFIG_DIR" ]; then
+            log "Respaldo de ~/.config omitido porque la carpeta no existe." >> "$LOG_FILE" 2>&1
+        else
+            log "Respaldo de ~/.config omitido por elección del usuario." >> "$LOG_FILE" 2>&1
+        fi
         return 2
     fi
 }
