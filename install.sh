@@ -91,7 +91,23 @@ if [ -d "$CONFIG_DIR" ]; then
     fi
 fi
 
-# Los privilegios de sudo se solicitarán interactivamente cuando un paso lo requiera
+# Solicitar privilegios de administrador al inicio de forma nativa e interactiva
+echo -e "${BLUE}:: Solicitando privilegios de administrador para la instalación...${NC}"
+if ! sudo -v; then
+    error "Se requieren privilegios de administrador para continuar."
+    exit 1
+fi
+
+# Mantener vivo el token de sudo en segundo plano (refrescando de forma no interactiva)
+(
+    while true; do
+        sudo -n -v
+        sleep 30
+        kill -0 "$$" || exit
+    done 2>/dev/null
+) &
+SUDO_KEEP_ALIVE_PID=$!
+echo ""
 
 cleanup() {
     # Disable exit-on-error inside cleanup so it runs to completion even if some command fails
@@ -114,6 +130,10 @@ cleanup() {
     fi
     
 
+    # Kill the sudo keep alive daemon
+    if [ -n "${SUDO_KEEP_ALIVE_PID:-}" ]; then
+        kill "$SUDO_KEEP_ALIVE_PID" 2>/dev/null || true
+    fi
     
     # Remove temporary environment file if exists
     if [ -f "$ENV_FILE" ]; then
@@ -268,18 +288,7 @@ run_step() {
     CURRENT_STEP="$step"
     START_TIME=$(date +%s)
     
-    # Asegurar que sudo esté autenticado interactivamente si el paso requiere privilegios elevados
-    case "$step" in
-        1|2|4|5|9|10)
-            if ! sudo -n -v 2>/dev/null; then
-                # Mostrar temporalmente el cursor y ejecutar sudo de forma nativa leyendo de /dev/tty
-                echo -ne "\e[?25h"
-                sudo -v < /dev/tty
-                echo -ne "\e[?25l"
-                echo -ne "\e[2K\r"  # Limpiar el prompt nativo después de ingresar la contraseña
-            fi
-            ;;
-    esac
+
 
     start_spinner "$step" "$msg"
     
