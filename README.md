@@ -43,7 +43,7 @@ Este repositorio incluye un instalador moderno escrito en POSIX Bash/Shell que n
 ### Comando de Instalación:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JesDev12U/jesdev12u-hyprland-dots/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JesDev12U/jesdev12u-hyprland-dots/refs/heads/main/install.sh | bash
 ```
 
 ### ¿Qué hace el instalador automáticamente?
