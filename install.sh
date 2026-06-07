@@ -271,9 +271,21 @@ run_step() {
     # Asegurar que sudo esté autenticado interactivamente si el paso requiere privilegios elevados
     case "$step" in
         1|2|4|5|9|10)
-            echo -ne "\e[?25h"  # Mostrar cursor temporalmente
-            sudo -v
-            echo -ne "\e[?25l"  # Ocultar cursor nuevamente
+            if ! sudo -n -v 2>/dev/null; then
+                local lines_up=$((16 - step))
+                # Actualizar la línea del paso para indicar que espera contraseña (sin emojis)
+                echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} (esperando contraseña...)\e[${lines_up}B\r"
+                
+                # Mostrar un aviso llamativo en la línea de detalle (sin emojis)
+                echo -ne "\e[2K\r ${YELLOW}Autorización:${NC} ${CYAN}Se requieren privilegios de sudo. Introduce tu contraseña de sistema...${NC}\r"
+                
+                echo -ne "\e[?25h"  # Mostrar cursor
+                sudo -v
+                echo -ne "\e[?25l"  # Ocultar cursor
+                
+                # Limpiar la línea de detalle
+                echo -ne "\e[2K\r"
+            fi
             ;;
     esac
 
