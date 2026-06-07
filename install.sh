@@ -112,32 +112,30 @@ if ! sudo -n -v 2>/dev/null; then
 fi
 
 # Configurar helpers de sudo para automatizar la autenticación
-HELPERS_DIR="$HOME/.caelestia-install-helpers"
-mkdir -p "$HELPERS_DIR"
-chmod 700 "$HELPERS_DIR"
+if [ -n "$sudo_password" ]; then
+    HELPERS_DIR="$HOME/.caelestia-install-helpers"
+    mkdir -p "$HELPERS_DIR"
+    chmod 700 "$HELPERS_DIR"
 
-# Escribir el script askpass
-cat << 'EOF' > "$HELPERS_DIR/caelestia-askpass"
+    # Escribir el script askpass con la contraseña escrita directamente en el archivo
+    # Esto es necesario porque sudo limpia el entorno y no hereda la variable de entorno
+    cat << EOF > "$HELPERS_DIR/caelestia-askpass"
 #!/bin/bash
-echo "${CAELESTIA_SUDO_PASSWORD:-}"
+echo "$sudo_password"
 EOF
-chmod +x "$HELPERS_DIR/caelestia-askpass"
+    chmod 700 "$HELPERS_DIR/caelestia-askpass"
 
-# Escribir el wrapper de sudo
-cat << 'EOF' > "$HELPERS_DIR/sudo"
+    # Escribir el wrapper de sudo
+    cat << 'EOF' > "$HELPERS_DIR/sudo"
 #!/bin/bash
-if [ -n "${CAELESTIA_SUDO_PASSWORD:-}" ]; then
-    export SUDO_ASKPASS="$HOME/.caelestia-install-helpers/caelestia-askpass"
-    exec /usr/bin/sudo -A "$@"
-else
-    exec /usr/bin/sudo "$@"
+export SUDO_ASKPASS="$HOME/.caelestia-install-helpers/caelestia-askpass"
+exec /usr/bin/sudo -A "$@"
+EOF
+    chmod +x "$HELPERS_DIR/sudo"
+
+    # Exportar las variables para activar el wrapper
+    export PATH="$HELPERS_DIR:$PATH"
 fi
-EOF
-chmod +x "$HELPERS_DIR/sudo"
-
-# Exportar las variables para activar el wrapper
-export PATH="$HELPERS_DIR:$PATH"
-export CAELESTIA_SUDO_PASSWORD="$sudo_password"
 
 # Mantener vivo el token de sudo en segundo plano
 (
