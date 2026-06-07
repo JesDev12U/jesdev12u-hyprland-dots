@@ -120,6 +120,16 @@ cleanup() {
     # Stop the active spinner if running
     stop_spinner
     
+    if [ "${LAYOUT_PRINTED:-0}" -eq 1 ]; then
+        # Clear the detailed status and log viewport (lines 12 to 17)
+        echo -ne "\e[5A"
+        for i in {1..5}; do
+            echo -ne "\e[2K\r\e[1B"
+        done
+        echo -ne "\e[2K\r"
+        echo -ne "\e[5A\r"
+    fi
+    
     # Kill the sudo keep alive daemon
     if [ -n "${SUDO_KEEP_ALIVE_PID:-}" ]; then
         kill "$SUDO_KEEP_ALIVE_PID" 2>/dev/null || true
@@ -157,7 +167,6 @@ cleanup() {
     # 2. Show cursor and reset text formatting immediately
     echo -ne "\e[?25h"  # Show cursor
     echo -ne "\e[0m"    # Reset text formatting
-    echo -ne "\e[2K\r"  # Clear the detailed status line
     stty sane 2>/dev/null || true
     
     # 3. Print final status message (Responsive and elegant, borderless layout)
@@ -196,14 +205,14 @@ trap cleanup EXIT ERR INT TERM
 update_header() {
     local completed="$1"
     local total=10
-    local lines_up=11
+    local lines_up=16
     echo -ne "\e[${lines_up}A\e[2K\r${BLUE}[+] Instalando Caelestia [${completed}/${total}]${NC}\e[${lines_up}B\r"
 }
 
 start_spinner() {
     local step="$1"
     local msg="$2"
-    local lines_up=$((11 - step))
+    local lines_up=$((16 - step))
     
     stop_spinner
     
@@ -213,19 +222,34 @@ start_spinner() {
         local start_t=$(date +%s)
         while true; do
             local elapsed=$(( $(date +%s) - start_t ))
-            local last_log=""
+            local log_lines=()
             if [ -f "$LOG_FILE" ]; then
-                last_log=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr '\r' '\n' | tail -n 1 | sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/^[[:space:]]*//' | cut -c 1-72)
+                mapfile -t log_lines < <(tail -n 20 "$LOG_FILE" 2>/dev/null | tr '\r' '\n' | grep -v '^$' | tail -n 5)
             fi
+            for ((l=${#log_lines[@]}; l<5; l++)); do
+                log_lines=("" "${log_lines[@]}")
+            done
+            
             echo -ne "\e[${lines_up}A\e[2K\r ${BLUE}${spinner[i]}${NC} [$(printf "%02d" $step)/10] ${CYAN}${msg}${NC} ... (${elapsed}s)\e[${lines_up}B\r"
-            echo -ne "\e[2K\r ${GRAY}➤ Detalle:${NC} ${GRAY}${last_log}${NC}"
+            
+            echo -ne "\e[4A"
+            for ((l=0; l<5; l++)); do
+                local line="${log_lines[l]}"
+                line=$(echo "$line" | sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/^[[:space:]]*//' | cut -c 1-72)
+                if [ $l -lt 4 ]; then
+                    echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${line}${NC}\e[1B"
+                  else
+                    echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${line}${NC}\r"
+                fi
+            done
+            
             i=$(( (i + 1) % 10 ))
             sleep 0.1
         done
     ) &
     SPINNER_PID=$!
 }
-
+    
 stop_spinner() {
     if [ -n "${SPINNER_PID:-}" ]; then
         kill -9 "$SPINNER_PID" 2>/dev/null || true
@@ -233,13 +257,13 @@ stop_spinner() {
         unset SPINNER_PID
     fi
 }
-
+    
 end_step() {
     local step="$1"
     local status="$2"
     local msg="$3"
     local start_t="$4"
-    local lines_up=$((11 - step))
+    local lines_up=$((16 - step))
     
     stop_spinner
     
@@ -590,7 +614,12 @@ echo -e "${BLUE}[+] Instalando Caelestia [0/10]${NC}"
 for i in {1..10}; do
     echo -e " ${GRAY}⠇${NC} [$(printf "%02d" $i)/10] ${GRAY}${STEP_MSGS[i]}${NC}"
 done
-echo -ne " ${GRAY}➤ Detalle:${NC} ${GRAY}Iniciando instalación...${NC}"
+echo -e "  ${GRAY}────────────────────────────────────────────────────────────────────────${NC}"
+for i in {1..4}; do
+    echo -e " ${GRAY}│${NC}"
+done
+echo -ne " ${GRAY}│${NC}"
+LAYOUT_PRINTED=1
 
 echo -ne "\e[?25l" # Hide cursor
 
