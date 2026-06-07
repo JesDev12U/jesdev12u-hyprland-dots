@@ -157,6 +157,7 @@ cleanup() {
     # 2. Show cursor and reset text formatting immediately
     echo -ne "\e[?25h"  # Show cursor
     echo -ne "\e[0m"    # Reset text formatting
+    echo -ne "\e[2K\r"  # Clear the detailed status line
     stty sane 2>/dev/null || true
     
     # 3. Print final status message (Responsive and elegant, borderless layout)
@@ -212,7 +213,12 @@ start_spinner() {
         local start_t=$(date +%s)
         while true; do
             local elapsed=$(( $(date +%s) - start_t ))
+            local last_log=""
+            if [ -f "$LOG_FILE" ]; then
+                last_log=$(tail -n 1 "$LOG_FILE" 2>/dev/null | tr '\r' '\n' | tail -n 1 | sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/^[[:space:]]*//' | cut -c 1-72)
+            fi
             echo -ne "\e[${lines_up}A\e[2K\r ${BLUE}${spinner[i]}${NC} [$(printf "%02d" $step)/10] ${CYAN}${msg}${NC} ... (${elapsed}s)\e[${lines_up}B\r"
+            echo -ne "\e[2K\r ${GRAY}➤ Detalle:${NC} ${GRAY}${last_log}${NC}"
             i=$(( (i + 1) % 10 ))
             sleep 0.1
         done
@@ -584,6 +590,7 @@ echo -e "${BLUE}[+] Instalando Caelestia [0/10]${NC}"
 for i in {1..10}; do
     echo -e " ${GRAY}⠇${NC} [$(printf "%02d" $i)/10] ${GRAY}${STEP_MSGS[i]}${NC}"
 done
+echo -ne " ${GRAY}➤ Detalle:${NC} ${GRAY}Iniciando instalación...${NC}"
 
 echo -ne "\e[?25l" # Hide cursor
 
