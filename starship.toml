@@ -1,0 +1,433 @@
+# ============================================
+# 1. FORMATO GLOBAL
+# ============================================
+add_newline = true
+palette = 'cyberdream'
+
+format = """
+[╭\\[](bold overlay1)\
+$os\
+[|](bold overlay1)\
+$username\
+[\\]─\\[](bold overlay1)\
+$directory\
+[\\]](bold overlay1)\
+$git_branch\
+$git_status\
+$package\
+$c\
+$cmake\
+$cobol\
+$daml\
+$dart\
+$deno\
+$dotnet\
+$elixir\
+$elm\
+$erlang\
+$golang\
+$guix_shell\
+$haskell\
+$haxe\
+$helm\
+$java\
+$julia\
+$kotlin\
+$gradle\
+$lua\
+$nim\
+$nodejs\
+$ocaml\
+$opa\
+$perl\
+$php\
+$pulumi\
+$purescript\
+$python\
+$raku\
+$rlang\
+$red\
+$ruby\
+$rust\
+$scala\
+$solidity\
+$swift\
+$terraform\
+$vlang\
+$vagrant\
+$zig\
+$buf\
+$nix_shell\
+$conda\
+$meson\
+$spack\
+$memory_usage\
+$aws\
+$gcloud\
+$openstack\
+$azure\
+$env_var\
+$crystal\
+$custom\
+$sudo\
+$docker_context\
+${custom.hackthebox}\
+$cmd_duration\
+\n$character\
+"""
+
+# ============================================
+# 2. COLORES (Cyberdream)
+# ============================================
+[palettes.cyberdream]
+text         = '#c7cfff'
+#overlay1     = '#404A63'
+#overlay1     = '#ABF668'
+color_fg0    = '#c7cfff'
+color_bg0    = '#0a0e14'
+color_blue   = '#5ea1ff'
+color_green  = '#5eff6c'
+color_orange = '#ffb65e'
+color_red    = '#ff6e5e'
+color_yellow = '#f1ff5e'
+color_pink   = '#ff5ea0'
+color_purple = '#bd5eff'
+color_aqua   = '#5ef1ff'
+
+# ============================================
+# 3. IDENTIDAD Y OS
+# ============================================
+
+[os]
+disabled = false
+style = "bold white"
+format = '$symbol'
+
+[os.symbols]
+Alpaquita = " "
+Alpine = " "
+AlmaLinux = " "
+Amazon = " "
+Android = " "
+AOSC = " "
+Arch = " "
+Artix = " "
+CachyOS = " "
+CentOS = " "
+Debian = " "
+DragonFly = " "
+Emscripten = " "
+EndeavourOS = " "
+Fedora = " "
+FreeBSD = " "
+Garuda = "󰛓 "
+Gentoo = " "
+HardenedBSD = "󰞌 "
+Illumos = "󰈸 "
+Kali = " "
+Linux = " "
+Mabox = " "
+Macos = " "
+Manjaro = " "
+Mariner = " "
+MidnightBSD = " "
+Mint = " "
+NetBSD = " "
+NixOS = " "
+Nobara = " "
+OpenBSD = "󰈺 "
+openSUSE = " "
+OracleLinux = "󰌷 "
+Pop = " "
+Raspbian = " "
+Redhat = " "
+RedHatEnterprise = " "
+RockyLinux = " "
+Redox = "󰀘 "
+Solus = "󰠳 "
+SUSE = " "
+Ubuntu = " "
+Unknown = " "
+Void = " "
+Windows = "󰍲 "
+
+[username]
+disabled = false
+style_user = 'bold color_blue'
+style_root = 'bold color_red'
+format = '[$user]($style)'
+show_always = true
+
+[hostname]
+disabled = true
+
+[directory]
+style = "bold color_purple"
+format = '[$path]($style)'
+truncation_length = 3
+truncation_symbol = "…/"
+read_only = " 󰌾"
+
+# ============================================
+# 4. GIT
+# ============================================
+
+[git_branch]
+symbol = " "
+style = "bold color_pink"
+format = ' [](bold color_aqua) [$symbol$branch]($style)'
+
+[git_status]
+style = "bold color_red"
+ahead = "⇡${count}"
+behind = "⇣${count}"
+diverged = "⇕⇡${ahead_count}⇣${behind_count}"
+conflicted = "conflicto"
+up_to_date = "" 
+
+format = '( [\[$all_status$ahead_behind\]]($style))'
+
+# ============================================
+# 5. LENGUAJES (Formato Unificado)
+# ============================================
+
+[aws]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($profile )]($style)'
+
+[buf]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[bun]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[c]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[cpp]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[cmake]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[cobol]
+symbol = "⚙️ "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[conda]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol$environment]($style)'
+
+[crystal]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[dart]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[deno]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[docker_context]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol$context]($style)'
+
+[dotnet]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[elixir]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[elm]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[erlang]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[gcloud]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($profile )]($style)'
+
+[golang]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[gradle]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[guix_shell]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol]($style)'
+
+[haskell]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[haxe]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[helm]
+symbol = "⎈ "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[java]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[julia]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[kotlin]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[lua]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[memory_usage]
+symbol = "󰍛 "
+format = ' [](bold color_aqua) [$symbol$ram]($style)'
+
+[meson]
+symbol = "󰔷 "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[nim]
+symbol = "󰆥 "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[nix_shell]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol]($style)'
+
+[nodejs]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[ocaml]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[opa]
+symbol = "󰘮 "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[package]
+symbol = "󰏗 "
+format = ' [](bold color_aqua) [$symbol$version]($style)'
+
+[perl]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[php]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[pulumi]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[purescript]
+symbol = "⇔ "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[python]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[raku]
+symbol = "R "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[rlang]
+symbol = "󰟔 "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[red]
+symbol = "🔺 "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[ruby]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[rust]
+symbol = "󱘗 "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[scala]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[solidity]
+symbol = "⟠ "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[swift]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[terraform]
+symbol = "󱁢 "
+format = ' [](bold color_aqua) [$symbol$version]($style)'
+
+[vlang]
+symbol = "V "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[vagrant]
+symbol = "⍱ "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+[zig]
+symbol = " "
+format = ' [](bold color_aqua) [$symbol($version)]($style)'
+
+# ============================================
+# 6. FINAL
+# ============================================
+
+[cmd_duration]
+min_time = 1000
+show_milliseconds = false
+#format = """
+# [󰊠](fg:#73DACA)\
+#[󰊠](fg:#E0AF68)\
+#[󰊠](fg:#7AA2F7) [$duration](italic fg:color_yellow)\
+#"""
+format = ' [» $duration](italic fg:color_yellow)'
+
+[character]
+#format = """
+#[└──](bold overlay1)$symbol """
+format = """
+[╰](bold overlay1)$symbol\
+"""
+success_symbol = '[≻](bold color_green)'
+error_symbol   = '[≻](bold color_red)'
+
+[custom.hackthebox]
+description = "Muestra la IP de la VPN de HTB"
+command = "ip addr show tun0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"
+when = "ip link show tun0"
+symbol = "󰆧 " 
+style = "bold green"
+format = "[ $symbol($output )]($style)"
+[container]
+disabled = true

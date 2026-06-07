@@ -1,0 +1,18 @@
+{
+  "toggles": {
+    "whiteboard": {
+      "lorien": {
+        "enable": true,
+        "match": [
+          {
+            "class": "Lorien"
+          }
+        ],
+        "command": [
+          "/home/jesdev12u/.config/caelestia/toggle_whiteboard.sh"
+        ],
+        "move": true
+      }
+    }
+  }
+}
