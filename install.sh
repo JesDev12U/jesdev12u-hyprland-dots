@@ -91,64 +91,7 @@ if [ -d "$CONFIG_DIR" ]; then
     fi
 fi
 
-# Solicitar privilegios de administrador al inicio
-echo -e "${BLUE}:: Solicitando privilegios de administrador...${NC}"
-sudo_password=""
-if ! sudo -n -v 2>/dev/null; then
-    # Se requiere contraseña
-    if [ -t 0 ]; then
-        read -rs -p "Introduce tu contraseña de sudo: " sudo_password
-        echo ""
-    else
-        read -rs -p "Introduce tu contraseña de sudo: " sudo_password < /dev/tty
-        echo "" > /dev/tty
-    fi
-    
-    # Validar la contraseña
-    if ! echo "$sudo_password" | sudo -S -v 2>/dev/null; then
-        error "Contraseña incorrecta o el usuario no tiene privilegios de sudo."
-        exit 1
-    fi
-fi
-
-# Configurar helpers de sudo para automatizar la autenticación
-if [ -n "$sudo_password" ]; then
-    HELPERS_DIR="$HOME/.caelestia-install-helpers"
-    mkdir -p "$HELPERS_DIR"
-    chmod 700 "$HELPERS_DIR"
-
-    # Escribir el script askpass con la contraseña escrita directamente en el archivo
-    # Esto es necesario porque sudo limpia el entorno y no hereda la variable de entorno
-    cat << EOF > "$HELPERS_DIR/caelestia-askpass"
-#!/bin/bash
-echo "$sudo_password"
-EOF
-    chmod 700 "$HELPERS_DIR/caelestia-askpass"
-
-    # Escribir el wrapper de sudo
-    cat << 'EOF' > "$HELPERS_DIR/sudo"
-#!/bin/bash
-export SUDO_ASKPASS="$HOME/.caelestia-install-helpers/caelestia-askpass"
-exec /usr/bin/sudo -A "$@"
-EOF
-    chmod +x "$HELPERS_DIR/sudo"
-
-    # Exportar las variables para activar el wrapper y limpiar la caché de comandos de Bash (hashing)
-    export PATH="$HELPERS_DIR:$PATH"
-    hash -r
-fi
-
-# Mantener vivo el token de sudo en segundo plano
-(
-    while true; do
-        sudo -v
-        sleep 30
-        kill -0 "$$" || exit
-    done 2>/dev/null
-) &
-SUDO_KEEP_ALIVE_PID=$!
-
-echo ""
+# Los privilegios de sudo se solicitarán interactivamente cuando un paso lo requiera
 
 cleanup() {
     # Disable exit-on-error inside cleanup so it runs to completion even if some command fails
@@ -170,14 +113,7 @@ cleanup() {
         echo -ne "\e[5A\r"
     fi
     
-    # Kill the sudo keep alive daemon
-    if [ -n "${SUDO_KEEP_ALIVE_PID:-}" ]; then
-        kill "$SUDO_KEEP_ALIVE_PID" 2>/dev/null || true
-    fi
-    # Clean up sudo helpers
-    if [ -d "$HOME/.caelestia-install-helpers" ]; then
-        rm -rf "$HOME/.caelestia-install-helpers" 2>/dev/null || true
-    fi
+
     
     # Remove temporary environment file if exists
     if [ -f "$ENV_FILE" ]; then
@@ -332,6 +268,15 @@ run_step() {
     CURRENT_STEP="$step"
     START_TIME=$(date +%s)
     
+    # Asegurar que sudo esté autenticado interactivamente si el paso requiere privilegios elevados
+    case "$step" in
+        1|2|4|5|9|10)
+            echo -ne "\e[?25h"  # Mostrar cursor temporalmente
+            sudo -v
+            echo -ne "\e[?25l"  # Ocultar cursor nuevamente
+            ;;
+    esac
+
     start_spinner "$step" "$msg"
     
     # Temporarily disable set -e in the main shell, but run the step function in a subshell with set -eo pipefail active
