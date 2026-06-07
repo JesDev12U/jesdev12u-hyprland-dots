@@ -272,9 +272,9 @@ run_step() {
     case "$step" in
         1|2|4|5|9|10)
             if ! sudo -n -v 2>/dev/null; then
-                # Mostrar temporalmente el cursor y ejecutar sudo de forma nativa en la línea de detalle actual
+                # Mostrar temporalmente el cursor y ejecutar sudo de forma nativa leyendo de /dev/tty
                 echo -ne "\e[?25h"
-                sudo -v
+                sudo -v < /dev/tty
                 echo -ne "\e[?25l"
                 echo -ne "\e[2K\r"  # Limpiar el prompt nativo después de ingresar la contraseña
             fi
