@@ -275,11 +275,11 @@ run_step() {
         1|2|4|5|9|10)
             if ! sudo -n -v 2>/dev/null; then
                 local lines_up=$((16 - step))
-                # Ir a la línea del paso, mostrar el prompt de contraseña (sin emojis) y habilitar cursor
-                echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} - Contraseña: \e[?25h"
+                # Ir a la línea del paso, preparar el espacio para el prompt nativo y habilitar cursor
+                echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} - \e[?25h"
                 
-                # Ejecutar sudo con prompt vacío para que use el nuestro
-                sudo -p "" -v < /dev/tty
+                # Ejecutar sudo para que muestre su prompt nativo e interactivo directamente en esta línea
+                sudo -v
                 
                 # Ocultar cursor, restaurar la línea del paso a su estado original (gris limpio) y restaurar cursor a la línea 17
                 echo -ne "\e[?25l\e[2K\r ${GRAY}⠇${NC} [$(printf "%02d" $step)/10] ${GRAY}${msg}${NC}\e[u"
