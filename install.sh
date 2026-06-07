@@ -111,14 +111,38 @@ if ! sudo -n -v 2>/dev/null; then
     fi
 fi
 
+# Configurar helpers de sudo para automatizar la autenticación
+HELPERS_DIR="$HOME/.caelestia-install-helpers"
+mkdir -p "$HELPERS_DIR"
+chmod 700 "$HELPERS_DIR"
+
+# Escribir el script askpass
+cat << 'EOF' > "$HELPERS_DIR/caelestia-askpass"
+#!/bin/bash
+echo "${CAELESTIA_SUDO_PASSWORD:-}"
+EOF
+chmod +x "$HELPERS_DIR/caelestia-askpass"
+
+# Escribir el wrapper de sudo
+cat << 'EOF' > "$HELPERS_DIR/sudo"
+#!/bin/bash
+if [ -n "${CAELESTIA_SUDO_PASSWORD:-}" ]; then
+    export SUDO_ASKPASS="$HOME/.caelestia-install-helpers/caelestia-askpass"
+    exec /usr/bin/sudo -A "$@"
+else
+    exec /usr/bin/sudo "$@"
+fi
+EOF
+chmod +x "$HELPERS_DIR/sudo"
+
+# Exportar las variables para activar el wrapper
+export PATH="$HELPERS_DIR:$PATH"
+export CAELESTIA_SUDO_PASSWORD="$sudo_password"
+
 # Mantener vivo el token de sudo en segundo plano
 (
     while true; do
-        if [ -n "$sudo_password" ]; then
-            echo "$sudo_password" | sudo -S -v
-        else
-            sudo -n -v
-        fi
+        sudo -v
         sleep 30
         kill -0 "$$" || exit
     done 2>/dev/null
@@ -150,6 +174,10 @@ cleanup() {
     # Kill the sudo keep alive daemon
     if [ -n "${SUDO_KEEP_ALIVE_PID:-}" ]; then
         kill "$SUDO_KEEP_ALIVE_PID" 2>/dev/null || true
+    fi
+    # Clean up sudo helpers
+    if [ -d "$HOME/.caelestia-install-helpers" ]; then
+        rm -rf "$HOME/.caelestia-install-helpers" 2>/dev/null || true
     fi
     
     # Remove temporary environment file if exists
