@@ -276,12 +276,13 @@ run_step() {
                 # Actualizar la línea del paso para indicar que espera contraseña (sin emojis)
                 echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} (esperando contraseña...)\e[${lines_up}B\r"
                 
-                # Mostrar un aviso llamativo en la línea de detalle (sin emojis)
-                echo -ne "\e[2K\r ${YELLOW}Autorización:${NC} ${CYAN}Se requieren privilegios de sudo. Introduce tu contraseña de sistema...${NC}\r"
+                # Limpiar la línea de detalle para dar espacio al prompt nativo de sudo
+                echo -ne "\e[2K\r"
                 
                 echo -ne "\e[?25h"  # Mostrar cursor
-                sudo -v
-                echo -ne "\e[?25l"  # Ocultar cursor
+                # Ejecutar sudo usando un prompt personalizado y direccionado a /dev/tty para que sea 100% visible
+                sudo -p "$(echo -e "${YELLOW}Autorización:${NC} ${CYAN}Se requieren privilegios de sudo. Contraseña: ${NC}")" -v < /dev/tty
+                echo -ne "\e[?25l"  # Ocultar cursor nuevamente
                 
                 # Limpiar la línea de detalle
                 echo -ne "\e[2K\r"
