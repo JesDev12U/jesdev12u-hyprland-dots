@@ -283,6 +283,8 @@ SYSTEM_PACKAGES=(
     wireplumber
     trash-cli
     jq
+    eza
+    less
     adw-gtk-theme
     papirus-icon-theme
     ttf-jetbrains-mono-nerd
