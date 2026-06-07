@@ -104,8 +104,6 @@ cleanup() {
     stop_spinner
     
     if [ "${LAYOUT_PRINTED:-0}" -eq 1 ]; then
-        # Restore cursor to the saved position (Line 17)
-        echo -ne "\e[u"
         # Clear the detailed status and log viewport (lines 12 to 17)
         echo -ne "\e[5A"
         for i in {1..5}; do
@@ -274,15 +272,11 @@ run_step() {
     case "$step" in
         1|2|4|5|9|10)
             if ! sudo -n -v 2>/dev/null; then
-                local lines_up=$((16 - step))
-                # Ir a la línea del paso, preparar el espacio para el prompt nativo y habilitar cursor
-                echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} - \e[?25h"
-                
-                # Ejecutar sudo para que muestre su prompt nativo e interactivo directamente en esta línea
+                # Mostrar temporalmente el cursor y ejecutar sudo de forma nativa en la línea de detalle actual
+                echo -ne "\e[?25h"
                 sudo -v
-                
-                # Ocultar cursor, restaurar la línea del paso a su estado original (gris limpio) y restaurar cursor a la línea 17
-                echo -ne "\e[?25l\e[2K\r ${GRAY}⠇${NC} [$(printf "%02d" $step)/10] ${GRAY}${msg}${NC}\e[u"
+                echo -ne "\e[?25l"
+                echo -ne "\e[2K\r"  # Limpiar el prompt nativo después de ingresar la contraseña
             fi
             ;;
     esac
@@ -617,7 +611,7 @@ echo -e "  ${GRAY}────────────────────�
 for i in {1..4}; do
     echo -e " ${GRAY}│${NC}"
 done
-echo -ne " ${GRAY}│${NC}\e[s"
+echo -ne " ${GRAY}│${NC}"
 LAYOUT_PRINTED=1
 
 echo -ne "\e[?25l" # Hide cursor
