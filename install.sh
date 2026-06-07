@@ -104,6 +104,8 @@ cleanup() {
     stop_spinner
     
     if [ "${LAYOUT_PRINTED:-0}" -eq 1 ]; then
+        # Restore cursor to the saved position (Line 17)
+        echo -ne "\e[u"
         # Clear the detailed status and log viewport (lines 12 to 17)
         echo -ne "\e[5A"
         for i in {1..5}; do
@@ -273,19 +275,14 @@ run_step() {
         1|2|4|5|9|10)
             if ! sudo -n -v 2>/dev/null; then
                 local lines_up=$((16 - step))
-                # Actualizar la línea del paso para indicar que espera contraseña (sin emojis)
-                echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} (esperando contraseña...)\e[${lines_up}B\r"
+                # Ir a la línea del paso, mostrar el prompt de contraseña (sin emojis) y habilitar cursor
+                echo -ne "\e[${lines_up}A\e[2K\r ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} - Contraseña: \e[?25h"
                 
-                # Limpiar la línea de detalle para dar espacio al prompt nativo de sudo
-                echo -ne "\e[2K\r"
+                # Ejecutar sudo con prompt vacío para que use el nuestro
+                sudo -p "" -v < /dev/tty
                 
-                echo -ne "\e[?25h"  # Mostrar cursor
-                # Ejecutar sudo usando un prompt personalizado y direccionado a /dev/tty para que sea 100% visible
-                sudo -p "$(echo -e "${YELLOW}Autorización:${NC} ${CYAN}Se requieren privilegios de sudo. Contraseña: ${NC}")" -v < /dev/tty
-                echo -ne "\e[?25l"  # Ocultar cursor nuevamente
-                
-                # Limpiar la línea de detalle
-                echo -ne "\e[2K\r"
+                # Ocultar cursor, restaurar la línea del paso a su estado original (gris limpio) y restaurar cursor a la línea 17
+                echo -ne "\e[?25l\e[2K\r ${GRAY}⠇${NC} [$(printf "%02d" $step)/10] ${GRAY}${msg}${NC}\e[u"
             fi
             ;;
     esac
@@ -620,7 +617,7 @@ echo -e "  ${GRAY}────────────────────�
 for i in {1..4}; do
     echo -e " ${GRAY}│${NC}"
 done
-echo -ne " ${GRAY}│${NC}"
+echo -ne " ${GRAY}│${NC}\e[s"
 LAYOUT_PRINTED=1
 
 echo -ne "\e[?25l" # Hide cursor
