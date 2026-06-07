@@ -54,3 +54,12 @@ curl -fsSL https://raw.githubusercontent.com/JesDev12U/jesdev12u-hyprland-dots/r
 4. Enlaza los archivos de configuración (`hypr`, `kitty`, `starship.toml`, `.zshrc`, `uwsm`, etc.) a tu directorio `~/.config/`.
 5. Enlaza los wallpapers a `~/Pictures/Wallpapers/` de manera no destructiva.
 6. Configura tu shell por defecto a Zsh.
+
+# Notas
+
+Si el cursor se ve pequeño al momento de instalar, puedes colocar estos comandos para setear el tamaño a tu gusto:
+
+```bash
+hyprctl setcursor macOS 34
+gsettings set org.gnome.desktop.interface cursor-size 34
+```
