@@ -92,17 +92,34 @@ if [ -d "$CONFIG_DIR" ]; then
 fi
 
 # Solicitar privilegios de administrador al inicio
-echo -e "${BLUE}:: Solicitando privilegios de administrador para la instalación...${NC}"
-if ! sudo -v; then
-    error "Se requieren privilegios de administrador para continuar."
-    exit 1
+echo -e "${BLUE}:: Solicitando privilegios de administrador...${NC}"
+sudo_password=""
+if ! sudo -n -v 2>/dev/null; then
+    # Se requiere contraseña
+    if [ -t 0 ]; then
+        read -rs -p "Introduce tu contraseña de sudo: " sudo_password
+        echo ""
+    else
+        read -rs -p "Introduce tu contraseña de sudo: " sudo_password < /dev/tty
+        echo "" > /dev/tty
+    fi
+    
+    # Validar la contraseña
+    if ! echo "$sudo_password" | sudo -S -v 2>/dev/null; then
+        error "Contraseña incorrecta o el usuario no tiene privilegios de sudo."
+        exit 1
+    fi
 fi
 
 # Mantener vivo el token de sudo en segundo plano
 (
     while true; do
-        sudo -n -v
-        sleep 60
+        if [ -n "$sudo_password" ]; then
+            echo "$sudo_password" | sudo -S -v
+        else
+            sudo -n -v
+        fi
+        sleep 30
         kill -0 "$$" || exit
     done 2>/dev/null
 ) &
@@ -422,13 +439,13 @@ step_1() {
         AUR_HELPER="yay"
         log "Se detectó yay como helper de AUR." >> "$LOG_FILE" 2>&1
     else
-        log "Instalando dependencias base y paru (AUR Helper)..." >> "$LOG_FILE" 2>&1
+        log "Instalando dependencias base y paru-bin (AUR Helper)..." >> "$LOG_FILE" 2>&1
         sudo pacman -S --needed --noconfirm git base-devel >> "$LOG_FILE" 2>&1
         local tmp_dir
         tmp_dir=$(mktemp -d)
         cd "$tmp_dir"
-        git clone https://aur.archlinux.org/paru.git >> "$LOG_FILE" 2>&1
-        cd paru
+        git clone https://aur.archlinux.org/paru-bin.git >> "$LOG_FILE" 2>&1
+        cd paru-bin
         makepkg -si --noconfirm >> "$LOG_FILE" 2>&1
         cd "$CURRENT_DIR"
         rm -rf "$tmp_dir" >> "$LOG_FILE" 2>&1
