@@ -302,9 +302,12 @@ start_spinner() {
             echo -ne "\e[4A"
             for ((l=0; l<5; l++)); do
                 local line="${log_lines[l]}"
-                # Eliminar códigos ANSI y espacios al inicio
+                # Eliminar códigos ANSI, secuencias de título (OSC), tabuladores y control
+                local esc=$'\e'
+                local bel=$'\a'
                 local clean_line
-                clean_line=$(echo "$line" | sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/^[[:space:]]*//')
+                clean_line=$(echo "$line" | expand -t 4 | tr -d '\r\b')
+                clean_line=$(echo "$clean_line" | sed -e "s/${esc}\][^${bel}]*${bel}//g" -e "s/${esc}\[[0-9;]*[a-zA-Z]//g" -e 's/^[[:space:]]*//')
                 local max_log_len=$((cols - 6))
                 if [ $max_log_len -lt 10 ]; then max_log_len=10; fi
                 local truncated_line
