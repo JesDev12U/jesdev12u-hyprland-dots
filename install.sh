@@ -638,9 +638,12 @@ step_5() {
     for pkg in "${AUR_PACKAGES[@]}"; do
         # 1. Evitar conflicto entre versión git y normal de caelestia-shell
         if [ "$pkg" = "caelestia-shell-git" ]; then
-            if pacman -Qi caelestia-shell >/dev/null 2>&1 || pacman -Qi caelestia-shell-git >/dev/null 2>&1; then
-                log "   -> caelestia-shell ya está instalado. Omitiendo $pkg para evitar conflictos." >> "$LOG_FILE" 2>&1
+            if pacman -Qi caelestia-shell-git >/dev/null 2>&1; then
+                log "   -> caelestia-shell-git ya está instalado. Omitiendo." >> "$LOG_FILE" 2>&1
                 continue
+            elif pacman -Qi caelestia-shell >/dev/null 2>&1; then
+                log "   -> Detectado caelestia-shell (estable). Reemplazando por caelestia-shell-git..." >> "$LOG_FILE" 2>&1
+                sudo pacman -Rns --noconfirm caelestia-shell >> "$LOG_FILE" 2>&1 || true
             fi
         fi
         # 2. Evitar conflicto entre versión git y normal de caelestia-cli
