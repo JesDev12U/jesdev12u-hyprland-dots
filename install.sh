@@ -453,15 +453,20 @@ create_symlink() {
     local dest="$2"
     
     if [ -d "$dest" ] && [ ! -L "$dest" ]; then
-        log "Eliminando directorio de configuración existente en $dest..." >> "$LOG_FILE" 2>&1
-        rm -rf "$dest" >> "$LOG_FILE" 2>&1 || sudo rm -rf "$dest" >> "$LOG_FILE" 2>&1 || return 1
+        log "Reemplazando directorio de configuración existente en $dest..." >> "$LOG_FILE" 2>&1
+        local tmp_dest="${dest}.tmp_install"
+        rm -rf "$tmp_dest" >> "$LOG_FILE" 2>&1
+        mv "$dest" "$tmp_dest" >> "$LOG_FILE" 2>&1 || sudo mv "$dest" "$tmp_dest" >> "$LOG_FILE" 2>&1 || return 1
+        ln -sfn "$src" "$dest" >> "$LOG_FILE" 2>&1 || return 1
+        rm -rf "$tmp_dest" >> "$LOG_FILE" 2>&1 || sudo rm -rf "$tmp_dest" >> "$LOG_FILE" 2>&1 || true
     elif [ -e "$dest" ] || [ -L "$dest" ]; then
         log "Eliminando archivo o enlace existente en $dest..." >> "$LOG_FILE" 2>&1
         rm -f "$dest" >> "$LOG_FILE" 2>&1 || sudo rm -f "$dest" >> "$LOG_FILE" 2>&1 || return 1
+        ln -sfn "$src" "$dest" >> "$LOG_FILE" 2>&1 || return 1
+    else
+        mkdir -p "$(dirname "$dest")" >> "$LOG_FILE" 2>&1 || return 1
+        ln -sfn "$src" "$dest" >> "$LOG_FILE" 2>&1 || return 1
     fi
-    
-    mkdir -p "$(dirname "$dest")" >> "$LOG_FILE" 2>&1 || return 1
-    ln -sfn "$src" "$dest" >> "$LOG_FILE" 2>&1 || return 1
 }
 
 # Helper to clone or update Zsh plugins
