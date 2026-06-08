@@ -492,6 +492,7 @@ SYSTEM_PACKAGES=(
     thunar
     # Display manager
     sddm
+    xcb-util-cursor
 )
 
 AUR_PACKAGES=(
