@@ -122,8 +122,8 @@ echo ""
 
 # Función wrapper de sudo para interceptar llamadas dentro de subprocesos/redirecciones
 sudo() {
-    if command sudo -n true 2>/dev/null; then
-        command sudo "$@"
+    if command sudo -n true < /dev/tty 2>/dev/null; then
+        command sudo "$@" < /dev/tty
     else
         # Detener el spinner si está corriendo para evitar corromper la pantalla
         local was_spinner_running=0
@@ -158,7 +158,7 @@ sudo() {
                 start_spinner "$CURRENT_STEP" "${STEP_MSGS[CURRENT_STEP]}"
             fi
             
-            command sudo "$@"
+            command sudo "$@" < /dev/tty
         else
             echo -ne "\e[?25l" > /dev/tty # Ocultar cursor
             error "Autenticación de sudo fallida." > /dev/tty
@@ -665,9 +665,9 @@ step_5() {
     done
     
     if [ ${#AUR_PACKAGES_TO_INSTALL[@]} -gt 0 ]; then
-        # Usamos echo para responder automáticamente con 'Enter' ante selección de proveedores
-        # y --overwrite "*" para forzar la sobrescritura de archivos en conflicto si hiciera falta
-        echo | $AUR_HELPER -S --needed --noconfirm --overwrite "*" "${AUR_PACKAGES_TO_INSTALL[@]}" >> "$LOG_FILE" 2>&1
+        # Corremos el helper con entrada estándar desde /dev/tty para que sudo interno localice el TTY ticket.
+        # --noconfirm seleccionará automáticamente la opción predeterminada para los proveedores.
+        $AUR_HELPER -S --needed --noconfirm --overwrite "*" "${AUR_PACKAGES_TO_INSTALL[@]}" < /dev/tty >> "$LOG_FILE" 2>&1
     else
         log "Todos los paquetes de AUR ya están instalados." >> "$LOG_FILE" 2>&1
     fi
