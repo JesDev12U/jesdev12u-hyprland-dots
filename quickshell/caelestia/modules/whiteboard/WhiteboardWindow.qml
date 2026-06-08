@@ -76,6 +76,155 @@ PanelWindow {
     property real grabbedElementDx: 0
     property real grabbedElementDy: 0
 
+    onCurrentToolChanged: {
+        win.selectedElementIndex = -1;
+        win.grabbedElementIndex = -1;
+        win.resizeGrabbed = false;
+        win.rotateGrabbed = false;
+        win.triggerReplay();
+        previewCanvas.requestPaint();
+    }
+
+    // Selection and Resize properties
+    property int selectedElementIndex: -1
+    property bool resizeGrabbed: false
+    property string resizeHandle: "" // "TL", "TR", "BL", "BR"
+    property real grabbedMinX: 0
+    property real grabbedMaxX: 0
+    property real grabbedMinY: 0
+    property real grabbedMaxY: 0
+    property var actionBeforeResize: null
+
+    // Rotation properties
+    property bool rotateGrabbed: false
+    property real grabbedInitialAngle: 0
+    property real grabbedElementInitialRotation: 0
+    property real grabbedElementRotationDelta: 0
+
+    function cloneAction(action) {
+        if (!action) return null;
+        let clone = {
+            type: action.type,
+            color: action.color,
+            penSize: action.penSize,
+            tool: action.tool,
+            fontSize: action.fontSize,
+            text: action.text,
+            shapeType: action.shapeType,
+            x: action.x,
+            y: action.y,
+            x1: action.x1,
+            y1: action.y1,
+            x2: action.x2,
+            y2: action.y2,
+            minX: action.minX,
+            maxX: action.maxX,
+            minY: action.minY,
+            maxY: action.maxY,
+            rotation: action.rotation
+        };
+        if (action.segments) {
+            clone.segments = [];
+            for (var i = 0; i < action.segments.length; i++) {
+                clone.segments.push({
+                    x1: action.segments[i].x1,
+                    y1: action.segments[i].y1,
+                    x2: action.segments[i].x2,
+                    y2: action.segments[i].y2
+                });
+            }
+        }
+        return clone;
+    }
+
+    function scaleAction(action, scaleX, scaleY, refX, refY) {
+        let scaleFactor = (scaleX + scaleY) / 2;
+        
+        if (action.type === "shape") {
+            action.x1 = refX + (action.x1 - refX) * scaleX;
+            action.y1 = refY + (action.y1 - refY) * scaleY;
+            action.x2 = refX + (action.x2 - refX) * scaleX;
+            action.y2 = refY + (action.y2 - refY) * scaleY;
+        } else if (action.type === "text") {
+            action.x = refX + (action.x - refX) * scaleX;
+            action.y = refY + (action.y - refY) * scaleY;
+            action.fontSize = Math.max(6, Math.round(action.fontSize * scaleFactor));
+        } else if (action.type === "stroke") {
+            if (action.penSize) {
+                action.penSize = Math.max(1, action.penSize * scaleFactor);
+            }
+            for (var s = 0; s < action.segments.length; s++) {
+                let seg = action.segments[s];
+                seg.x1 = refX + (seg.x1 - refX) * scaleX;
+                seg.y1 = refY + (seg.y1 - refY) * scaleY;
+                seg.x2 = refX + (seg.x2 - refX) * scaleX;
+                seg.y2 = refY + (seg.y2 - refY) * scaleY;
+            }
+        }
+        
+        // Recalculate bounds
+        if (action.type === "stroke") {
+            calculateStrokeBounds(action);
+        } else if (action.type === "shape") {
+            action.minX = Math.min(action.x1, action.x2);
+            action.maxX = Math.max(action.x1, action.x2);
+            action.minY = Math.min(action.y1, action.y2);
+            action.maxY = Math.max(action.y1, action.y2);
+        } else if (action.type === "text") {
+            let estWidth = action.text.length * action.fontSize * 0.55;
+            let estHeight = action.fontSize;
+            action.minX = action.x - 12;
+            action.maxX = action.x - 12 + estWidth;
+            action.minY = action.y - estHeight / 2;
+            action.maxY = action.y + estHeight / 2;
+        }
+    }
+
+    function getHoveredHandle(mx, my) {
+        if (win.selectedElementIndex === -1) return "";
+        let action = win.actionHistory[win.selectedElementIndex];
+        if (!action) return "";
+        
+        let minX = action.minX;
+        let maxX = action.maxX;
+        let minY = action.minY;
+        let maxY = action.maxY;
+        
+        let cx = (minX + maxX) / 2;
+        let cy = (minY + maxY) / 2;
+        
+        // Transform mouse to local unrotated space
+        let rot = action.rotation || 0;
+        let lmx = mx;
+        let lmy = my;
+        if (rot !== 0) {
+            let cos = Math.cos(-rot);
+            let sin = Math.sin(-rot);
+            lmx = cx + (mx - cx) * cos - (my - cy) * sin;
+            lmy = cy + (mx - cx) * sin + (my - cy) * cos;
+        }
+        
+        let borderOffset = 4 / zoomContainer.scale;
+        let bx1 = minX - borderOffset;
+        let bx2 = maxX + borderOffset;
+        let by1 = minY - borderOffset;
+        let by2 = maxY + borderOffset;
+        let mouseTol = 15 / zoomContainer.scale;
+        
+        // Check rotation handle first
+        let rxHandleX = (bx1 + bx2) / 2;
+        let rxHandleY = by1 - 24 / zoomContainer.scale;
+        if (Math.sqrt(Math.pow(lmx - rxHandleX, 2) + Math.pow(lmy - rxHandleY, 2)) < mouseTol) {
+            return "ROT";
+        }
+        
+        if (Math.sqrt(Math.pow(lmx - bx1, 2) + Math.pow(lmy - by1, 2)) < mouseTol) return "TL";
+        if (Math.sqrt(Math.pow(lmx - bx2, 2) + Math.pow(lmy - by1, 2)) < mouseTol) return "TR";
+        if (Math.sqrt(Math.pow(lmx - bx1, 2) + Math.pow(lmy - by2, 2)) < mouseTol) return "BL";
+        if (Math.sqrt(Math.pow(lmx - bx2, 2) + Math.pow(lmy - by2, 2)) < mouseTol) return "BR";
+        return "";
+    }
+
     function updateHoverState(mx, my) {
         if (win.currentTool === "text") {
             for (var h = win.historyStep; h >= 0; h--) {
@@ -264,15 +413,25 @@ PanelWindow {
 
     function undo() {
         if (win.historyStep >= 0) {
+            win.selectedElementIndex = -1;
+            win.grabbedElementIndex = -1;
+            win.resizeGrabbed = false;
+            win.rotateGrabbed = false;
             win.historyStep--;
             triggerReplay();
+            previewCanvas.requestPaint();
         }
     }
 
     function redo() {
         if (win.historyStep < win.actionHistory.length - 1) {
+            win.selectedElementIndex = -1;
+            win.grabbedElementIndex = -1;
+            win.resizeGrabbed = false;
+            win.rotateGrabbed = false;
             win.historyStep++;
             triggerReplay();
+            previewCanvas.requestPaint();
         }
     }
 
@@ -372,7 +531,7 @@ PanelWindow {
 
                 DragHandler {
                     target: zoomContainer
-                    enabled: win.currentTool === "mouse" && win.grabbedElementIndex === -1
+                    enabled: win.currentTool === "mouse" && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed
                     acceptedButtons: Qt.LeftButton
                 }
 
@@ -397,10 +556,135 @@ PanelWindow {
                         anchors.fill: parent
                         renderTarget: Canvas.FramebufferObject
                         
+                        function drawAction(ctx, action) {
+                            if (!action) return;
+                            if (action.type === "text") {
+                                ctx.globalCompositeOperation = "source-over";
+                                ctx.fillStyle = action.color;
+                                ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
+                                ctx.textBaseline = "middle";
+                                ctx.fillText(action.text, action.x, action.y);
+                            } else if (action.type === "shape") {
+                                ctx.beginPath();
+                                ctx.lineCap = "round";
+                                ctx.lineJoin = "round";
+                                ctx.globalCompositeOperation = "source-over";
+                                ctx.strokeStyle = action.color;
+                                ctx.lineWidth = action.penSize;
+                                ctx.globalAlpha = 1.0;
+                                
+                                if (action.shapeType === "rectangle") {
+                                    let rx = Math.min(action.x1, action.x2);
+                                    let ry = Math.min(action.y1, action.y2);
+                                    let rw = Math.abs(action.x2 - action.x1);
+                                    let rh = Math.abs(action.y2 - action.y1);
+                                    ctx.rect(rx, ry, rw, rh);
+                                    ctx.stroke();
+                                } else if (action.shapeType === "circle") {
+                                    let rx = Math.min(action.x1, action.x2);
+                                    let ry = Math.min(action.y1, action.y2);
+                                    let rw = Math.abs(action.x2 - action.x1);
+                                    let rh = Math.abs(action.y2 - action.y1);
+                                    ctx.ellipse(rx, ry, rw, rh);
+                                    ctx.stroke();
+                                } else if (action.shapeType === "line") {
+                                    ctx.moveTo(action.x1, action.y1);
+                                    ctx.lineTo(action.x2, action.y2);
+                                    ctx.stroke();
+                                }
+                            } else if (action.type === "stroke") {
+                                if (action.tool === "brush") {
+                                    drawCanvas.renderBrushLine(ctx, action, false);
+                                } else {
+                                    ctx.beginPath();
+                                    ctx.lineCap = "round";
+                                    ctx.lineJoin = "round";
+                                    ctx.globalCompositeOperation = "source-over";
+                                    ctx.strokeStyle = action.color;
+                                    ctx.lineWidth = action.penSize;
+                                    ctx.globalAlpha = 1.0;
+                                    
+                                    if (action.segments && action.segments.length > 0) {
+                                        ctx.moveTo(action.segments[0].x1, action.segments[0].y1);
+                                        for (var k = 0; k < action.segments.length; k++) {
+                                            ctx.lineTo(action.segments[k].x2, action.segments[k].y2);
+                                        }
+                                        ctx.stroke();
+                                    }
+                                }
+                            }
+                        }
+                        
+                        function drawSelectionBox(ctx, x1, x2, y1, y2, rotation) {
+                            let borderOffset = 4 / zoomContainer.scale;
+                            let handleSize = 8 / zoomContainer.scale;
+                            
+                            let bx1 = x1 - borderOffset;
+                            let bx2 = x2 + borderOffset;
+                            let by1 = y1 - borderOffset;
+                            let by2 = y2 + borderOffset;
+                            
+                            ctx.save();
+                            if (rotation && rotation !== 0) {
+                                let cx = (x1 + x2) / 2;
+                                let cy = (y1 + y2) / 2;
+                                ctx.translate(cx, cy);
+                                ctx.rotate(rotation);
+                                ctx.translate(-cx, -cy);
+                            }
+                            
+                            // Draw bounding box
+                            ctx.beginPath();
+                            ctx.strokeStyle = "#3b82f6"; // selection blue
+                            ctx.lineWidth = 1.5 / zoomContainer.scale;
+                            ctx.setLineDash([4 / zoomContainer.scale, 4 / zoomContainer.scale]);
+                            ctx.rect(bx1, by1, bx2 - bx1, by2 - by1);
+                            ctx.stroke();
+                            ctx.setLineDash([]); // Reset dash
+                            
+                            // Draw handles
+                            ctx.fillStyle = "white";
+                            ctx.strokeStyle = "#3b82f6";
+                            ctx.lineWidth = 2 / zoomContainer.scale;
+                            
+                            function drawHandle(hx, hy) {
+                                ctx.beginPath();
+                                ctx.arc(hx, hy, handleSize / 2, 0, 2 * Math.PI);
+                                ctx.fill();
+                                ctx.stroke();
+                            }
+                            
+                            drawHandle(bx1, by1); // TL
+                            drawHandle(bx2, by1); // TR
+                            drawHandle(bx1, by2); // BL
+                            drawHandle(bx2, by2); // BR
+                            
+                            // Draw rotation handle line and circle
+                            let rxHandleX = (bx1 + bx2) / 2;
+                            let rxHandleY = by1 - 24 / zoomContainer.scale;
+                            
+                            ctx.beginPath();
+                            ctx.strokeStyle = "#3b82f6";
+                            ctx.lineWidth = 1.5 / zoomContainer.scale;
+                            ctx.moveTo(rxHandleX, by1);
+                            ctx.lineTo(rxHandleX, rxHandleY);
+                            ctx.stroke();
+                            
+                            ctx.fillStyle = "white";
+                            ctx.strokeStyle = "#10b981"; // nice emerald green for rotation!
+                            ctx.lineWidth = 2 / zoomContainer.scale;
+                            ctx.beginPath();
+                            ctx.arc(rxHandleX, rxHandleY, handleSize / 2, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.stroke();
+                            
+                            ctx.restore();
+                        }
+
                         onPaint: {
                             var ctx = getContext("2d");
                             ctx.clearRect(0, 0, width, height);
-                            if (shapePreview.shapeType === "" && win.grabbedElementIndex === -1) return;
+                            if (shapePreview.shapeType === "" && win.grabbedElementIndex === -1 && win.selectedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed) return;
                             
                             // 1. Draw shape preview
                             if (shapePreview.shapeType !== "") {
@@ -436,69 +720,114 @@ PanelWindow {
                                 }
                             }
                             
-                            // 2. Draw grabbed element with offset
-                            if (win.grabbedElementIndex !== -1) {
+                            // 2. Draw grabbed element with offset (when moving)
+                            if (win.grabbedElementIndex !== -1 && !win.resizeGrabbed && !win.rotateGrabbed) {
                                 let action = win.actionHistory[win.grabbedElementIndex];
                                 if (action) {
                                     ctx.save();
-                                    ctx.translate(win.grabbedElementDx, win.grabbedElementDy);
+                                    let cx = (action.minX + action.maxX) / 2;
+                                    let cy = (action.minY + action.maxY) / 2;
                                     
-                                    if (action.type === "text") {
-                                        ctx.globalCompositeOperation = "source-over";
-                                        ctx.fillStyle = action.color;
-                                        ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
-                                        ctx.textBaseline = "middle";
-                                        ctx.fillText(action.text, action.x, action.y);
-                                    } else if (action.type === "shape") {
-                                        ctx.beginPath();
-                                        ctx.lineCap = "round";
-                                        ctx.lineJoin = "round";
-                                        ctx.globalCompositeOperation = "source-over";
-                                        ctx.strokeStyle = action.color;
-                                        ctx.lineWidth = action.penSize;
-                                        ctx.globalAlpha = 1.0;
-                                        
-                                        if (action.shapeType === "rectangle") {
-                                            let rx = Math.min(action.x1, action.x2);
-                                            let ry = Math.min(action.y1, action.y2);
-                                            let rw = Math.abs(action.x2 - action.x1);
-                                            let rh = Math.abs(action.y2 - action.y1);
-                                            ctx.rect(rx, ry, rw, rh);
-                                            ctx.stroke();
-                                        } else if (action.shapeType === "circle") {
-                                            let rx = Math.min(action.x1, action.x2);
-                                            let ry = Math.min(action.y1, action.y2);
-                                            let rw = Math.abs(action.x2 - action.x1);
-                                            let rh = Math.abs(action.y2 - action.y1);
-                                            ctx.ellipse(rx, ry, rw, rh);
-                                            ctx.stroke();
-                                        } else if (action.shapeType === "line") {
-                                            ctx.moveTo(action.x1, action.y1);
-                                            ctx.lineTo(action.x2, action.y2);
-                                            ctx.stroke();
-                                        }
-                                    } else if (action.type === "stroke") {
-                                        if (action.tool === "brush") {
-                                            drawCanvas.renderBrushLine(ctx, action, false);
-                                        } else {
-                                            ctx.beginPath();
-                                            ctx.lineCap = "round";
-                                            ctx.lineJoin = "round";
-                                            ctx.globalCompositeOperation = "source-over";
-                                            ctx.strokeStyle = action.color;
-                                            ctx.lineWidth = action.penSize;
-                                            ctx.globalAlpha = 1.0;
-                                            
-                                            if (action.segments && action.segments.length > 0) {
-                                                ctx.moveTo(action.segments[0].x1, action.segments[0].y1);
-                                                for (var k = 0; k < action.segments.length; k++) {
-                                                    ctx.lineTo(action.segments[k].x2, action.segments[k].y2);
-                                                }
-                                                ctx.stroke();
-                                            }
-                                        }
+                                    ctx.translate(win.grabbedElementDx, win.grabbedElementDy);
+                                    if (action.rotation && action.rotation !== 0) {
+                                        ctx.translate(cx, cy);
+                                        ctx.rotate(action.rotation);
+                                        ctx.translate(-cx, -cy);
                                     }
+                                    drawAction(ctx, action);
+                                    drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, 0);
                                     ctx.restore();
+                                }
+                            }
+                            
+                            // 3. Draw resizing element
+                            if (win.resizeGrabbed && win.actionBeforeResize) {
+                                let dx = win.grabbedElementDx;
+                                let dy = win.grabbedElementDy;
+                                
+                                let rot = win.actionBeforeResize.rotation || 0;
+                                let ldx = dx;
+                                let ldy = dy;
+                                if (rot !== 0) {
+                                    let cos = Math.cos(-rot);
+                                    let sin = Math.sin(-rot);
+                                    ldx = dx * cos - dy * sin;
+                                    ldy = dx * sin + dy * cos;
+                                }
+                                
+                                let minX = win.grabbedMinX;
+                                let maxX = win.grabbedMaxX;
+                                let minY = win.grabbedMinY;
+                                let maxY = win.grabbedMaxY;
+                                
+                                if (win.resizeHandle === "BR") {
+                                    maxX = Math.max(minX + 5, win.grabbedMaxX + ldx);
+                                    maxY = Math.max(minY + 5, win.grabbedMaxY + ldy);
+                                } else if (win.resizeHandle === "TL") {
+                                    minX = Math.min(maxX - 5, win.grabbedMinX + ldx);
+                                    minY = Math.min(maxY - 5, win.grabbedMinY + ldy);
+                                } else if (win.resizeHandle === "TR") {
+                                    maxX = Math.max(minX + 5, win.grabbedMaxX + ldx);
+                                    minY = Math.min(maxY - 5, win.grabbedMinY + ldy);
+                                } else if (win.resizeHandle === "BL") {
+                                    minX = Math.min(maxX - 5, win.grabbedMinX + ldx);
+                                    maxY = Math.max(minY + 5, win.grabbedMaxY + ldy);
+                                }
+                                
+                                let W0 = win.grabbedMaxX - win.grabbedMinX;
+                                let H0 = win.grabbedMaxY - win.grabbedMinY;
+                                if (W0 === 0) W0 = 1;
+                                if (H0 === 0) H0 = 1;
+                                
+                                let scaleX = (maxX - minX) / W0;
+                                let scaleY = (maxY - minY) / H0;
+                                
+                                let refX = win.grabbedMinX;
+                                let refY = win.grabbedMinY;
+                                if (win.resizeHandle === "TL") { refX = win.grabbedMaxX; refY = win.grabbedMaxY; }
+                                else if (win.resizeHandle === "TR") { refX = win.grabbedMinX; refY = win.grabbedMaxY; }
+                                else if (win.resizeHandle === "BL") { refX = win.grabbedMaxX; refY = win.grabbedMinY; }
+                                
+                                let tempAction = cloneAction(win.actionBeforeResize);
+                                scaleAction(tempAction, scaleX, scaleY, refX, refY);
+                                
+                                ctx.save();
+                                let cx = (minX + maxX) / 2;
+                                let cy = (minY + maxY) / 2;
+                                if (rot !== 0) {
+                                    ctx.translate(cx, cy);
+                                    ctx.rotate(rot);
+                                    ctx.translate(-cx, -cy);
+                                }
+                                drawAction(ctx, tempAction);
+                                drawSelectionBox(ctx, minX, maxX, minY, maxY, 0);
+                                ctx.restore();
+                            }
+                            
+                            // 3.5 Draw rotating element
+                            if (win.rotateGrabbed && win.selectedElementIndex !== -1) {
+                                let action = win.actionHistory[win.selectedElementIndex];
+                                if (action) {
+                                    ctx.save();
+                                    let cx = (action.minX + action.maxX) / 2;
+                                    let cy = (action.minY + action.maxY) / 2;
+                                    
+                                    let rot = win.grabbedElementInitialRotation + win.grabbedElementRotationDelta;
+                                    ctx.translate(cx, cy);
+                                    ctx.rotate(rot);
+                                    ctx.translate(-cx, -cy);
+                                    
+                                    drawAction(ctx, action);
+                                    drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, 0);
+                                    ctx.restore();
+                                }
+                            }
+                            
+                            // 4. Draw selection box around selected element (static hover/selected state)
+                            if (win.selectedElementIndex !== -1 && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed) {
+                                let action = win.actionHistory[win.selectedElementIndex];
+                                if (action) {
+                                    drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, action.rotation);
                                 }
                             }
                         }
@@ -689,7 +1018,15 @@ PanelWindow {
                                     ctx.fillRect(0, 0, width, height);
                                     ctx.globalCompositeOperation = "source-over";
                                 } else if (action.type === "stroke") {
-                                    if (h === win.grabbedElementIndex) continue;
+                                    if (h === win.grabbedElementIndex || (h === win.selectedElementIndex && (win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                    ctx.save();
+                                    if (action.rotation && action.rotation !== 0) {
+                                        let cx = (action.minX + action.maxX) / 2;
+                                        let cy = (action.minY + action.maxY) / 2;
+                                        ctx.translate(cx, cy);
+                                        ctx.rotate(action.rotation);
+                                        ctx.translate(-cx, -cy);
+                                    }
                                     if (action.tool === "brush") {
                                         renderBrushLine(ctx, action, false);
                                     } else {
@@ -704,8 +1041,17 @@ PanelWindow {
                                             ctx.stroke();
                                         }
                                     }
+                                    ctx.restore();
                                 } else if (action.type === "shape") {
-                                    if (h === win.grabbedElementIndex) continue;
+                                    if (h === win.grabbedElementIndex || (h === win.selectedElementIndex && (win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                    ctx.save();
+                                    if (action.rotation && action.rotation !== 0) {
+                                        let cx = (action.minX + action.maxX) / 2;
+                                        let cy = (action.minY + action.maxY) / 2;
+                                        ctx.translate(cx, cy);
+                                        ctx.rotate(action.rotation);
+                                        ctx.translate(-cx, -cy);
+                                    }
                                     ctx.beginPath();
                                     applyToolStyle(ctx, "pen", action.color, action.penSize);
                                     if (action.shapeType === "rectangle") {
@@ -727,13 +1073,23 @@ PanelWindow {
                                         ctx.lineTo(action.x2, action.y2);
                                         ctx.stroke();
                                     }
+                                    ctx.restore();
                                 } else if (action.type === "text") {
-                                    if (h === win.editingTextIndex || h === win.grabbedElementIndex) continue;
+                                    if (h === win.editingTextIndex || h === win.grabbedElementIndex || (h === win.selectedElementIndex && (win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                    ctx.save();
+                                    if (action.rotation && action.rotation !== 0) {
+                                        let cx = (action.minX + action.maxX) / 2;
+                                        let cy = (action.minY + action.maxY) / 2;
+                                        ctx.translate(cx, cy);
+                                        ctx.rotate(action.rotation);
+                                        ctx.translate(-cx, -cy);
+                                    }
                                     ctx.globalCompositeOperation = "source-over";
                                     ctx.fillStyle = action.color;
                                     ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
                                     ctx.textBaseline = "middle";
                                     ctx.fillText(action.text, action.x, action.y);
+                                    ctx.restore();
                                 }
                             }
                             _replayPending = false;
@@ -779,7 +1135,21 @@ PanelWindow {
                                 return win.isHoveringText ? Qt.IBeamCursor : Qt.CrossCursor;
                             }
                             if (win.currentTool === "mouse") {
+                                if (win.resizeGrabbed) {
+                                    return Qt.SizeAllCursor;
+                                }
+                                if (win.rotateGrabbed) {
+                                    return Qt.PointingHandCursor;
+                                }
                                 if (win.grabbedElementIndex !== -1) return Qt.ClosedHandCursor;
+                                
+                                if (win.selectedElementIndex !== -1) {
+                                    let handle = getHoveredHandle(win.lastHoverX, win.lastHoverY);
+                                    if (handle === "ROT") return Qt.PointingHandCursor;
+                                    if (handle === "TL" || handle === "BR") return Qt.SizeFDiagCursor;
+                                    if (handle === "TR" || handle === "BL") return Qt.SizeBDiagCursor;
+                                }
+                                
                                 return win.hoveredElementIndex !== -1 ? Qt.OpenHandCursor : Qt.ArrowCursor;
                             }
                             return Qt.CrossCursor;
@@ -805,7 +1175,47 @@ PanelWindow {
                             win.showColorPicker = false;
 
                             if (win.currentTool === "mouse") {
+                                if (win.selectedElementIndex !== -1) {
+                                    let handle = getHoveredHandle(mouse.x, mouse.y);
+                                    if (handle === "ROT") {
+                                        let action = win.actionHistory[win.selectedElementIndex];
+                                        if (action) {
+                                            win.rotateGrabbed = true;
+                                            let cx = (action.minX + action.maxX) / 2;
+                                            let cy = (action.minY + action.maxY) / 2;
+                                            win.grabbedInitialAngle = Math.atan2(mouse.y - cy, mouse.x - cx);
+                                            win.grabbedElementInitialRotation = action.rotation || 0;
+                                            
+                                            mouse.accepted = true;
+                                            win.triggerReplay();
+                                            previewCanvas.requestPaint();
+                                            return;
+                                        }
+                                    } else if (handle !== "") {
+                                        let action = win.actionHistory[win.selectedElementIndex];
+                                        if (action) {
+                                            win.resizeHandle = handle;
+                                            win.resizeGrabbed = true;
+                                            win.grabStartMouseX = mouse.x;
+                                            win.grabStartMouseY = mouse.y;
+                                            win.grabbedMinX = action.minX;
+                                            win.grabbedMaxX = action.maxX;
+                                            win.grabbedMinY = action.minY;
+                                            win.grabbedMaxY = action.maxY;
+                                            win.grabbedElementDx = 0;
+                                            win.grabbedElementDy = 0;
+                                            win.actionBeforeResize = cloneAction(action);
+                                            
+                                            mouse.accepted = true;
+                                            win.triggerReplay();
+                                            previewCanvas.requestPaint();
+                                            return;
+                                        }
+                                    }
+                                }
+                                
                                 if (win.hoveredElementIndex !== -1) {
+                                    win.selectedElementIndex = win.hoveredElementIndex;
                                     win.grabbedElementIndex = win.hoveredElementIndex;
                                     win.grabStartMouseX = mouse.x;
                                     win.grabStartMouseY = mouse.y;
@@ -815,6 +1225,11 @@ PanelWindow {
                                     win.triggerReplay();
                                     previewCanvas.requestPaint();
                                 } else {
+                                    if (win.selectedElementIndex !== -1) {
+                                        win.selectedElementIndex = -1;
+                                        win.triggerReplay();
+                                        previewCanvas.requestPaint();
+                                    }
                                     mouse.accepted = false; // let DragHandler pan the board
                                 }
                                 return;
@@ -896,6 +1311,33 @@ PanelWindow {
 
                         onPositionChanged: (mouse) => {
                             if (pressed) {
+                                if (win.currentTool === "mouse" && win.rotateGrabbed) {
+                                    let action = win.actionHistory[win.selectedElementIndex];
+                                    if (action) {
+                                        let cx = (action.minX + action.maxX) / 2;
+                                        let cy = (action.minY + action.maxY) / 2;
+                                        let currentAngle = Math.atan2(mouse.y - cy, mouse.x - cx);
+                                        let delta = currentAngle - win.grabbedInitialAngle;
+                                        
+                                        if (mouse.modifiers & Qt.ShiftModifier) {
+                                            let totalRot = win.grabbedElementInitialRotation + delta;
+                                            let snap = Math.PI / 12; // 15 deg
+                                            totalRot = Math.round(totalRot / snap) * snap;
+                                            delta = totalRot - win.grabbedElementInitialRotation;
+                                        }
+                                        win.grabbedElementRotationDelta = delta;
+                                        previewCanvas.requestPaint();
+                                    }
+                                    return;
+                                }
+
+                                if (win.currentTool === "mouse" && win.resizeGrabbed) {
+                                    win.grabbedElementDx = mouse.x - win.grabStartMouseX;
+                                    win.grabbedElementDy = mouse.y - win.grabStartMouseY;
+                                    previewCanvas.requestPaint();
+                                    return;
+                                }
+
                                 if (win.currentTool === "mouse" && win.grabbedElementIndex !== -1) {
                                     win.grabbedElementDx = mouse.x - win.grabStartMouseX;
                                     win.grabbedElementDy = mouse.y - win.grabStartMouseY;
@@ -941,7 +1383,7 @@ PanelWindow {
                                 }
                             } else {
                                 let dist = Math.sqrt(Math.pow(mouse.x - win.lastHoverX, 2) + Math.pow(mouse.y - win.lastHoverY, 2));
-                                if (dist > 6) {
+                                if (win.selectedElementIndex !== -1 || dist > 6) {
                                     win.lastHoverX = mouse.x;
                                     win.lastHoverY = mouse.y;
                                     win.updateHoverState(mouse.x, mouse.y);
@@ -959,7 +1401,80 @@ PanelWindow {
 
                         onReleased: (mouse) => {
                             if (win.currentTool === "mouse") {
-                                if (win.grabbedElementIndex !== -1) {
+                                if (win.rotateGrabbed && win.selectedElementIndex !== -1) {
+                                    let action = win.actionHistory[win.selectedElementIndex];
+                                    if (action) {
+                                        let newRotation = win.grabbedElementInitialRotation + win.grabbedElementRotationDelta;
+                                        if (mouse.modifiers & Qt.ShiftModifier) {
+                                            let snap = Math.PI / 12; // 15 degrees
+                                            newRotation = Math.round(newRotation / snap) * snap;
+                                        }
+                                        action.rotation = newRotation;
+                                    }
+                                    win.rotateGrabbed = false;
+                                    win.grabbedElementRotationDelta = 0;
+                                    win.triggerReplay();
+                                    previewCanvas.requestPaint();
+                                } else if (win.resizeGrabbed && win.actionBeforeResize && win.selectedElementIndex !== -1) {
+                                    let dx = win.grabbedElementDx;
+                                    let dy = win.grabbedElementDy;
+                                    
+                                    let rot = win.actionBeforeResize.rotation || 0;
+                                    let ldx = dx;
+                                    let ldy = dy;
+                                    if (rot !== 0) {
+                                        let cos = Math.cos(-rot);
+                                        let sin = Math.sin(-rot);
+                                        ldx = dx * cos - dy * sin;
+                                        ldy = dx * sin + dy * cos;
+                                    }
+                                    
+                                    let minX = win.grabbedMinX;
+                                    let maxX = win.grabbedMaxX;
+                                    let minY = win.grabbedMinY;
+                                    let maxY = win.grabbedMaxY;
+                                    
+                                    if (win.resizeHandle === "BR") {
+                                        maxX = Math.max(minX + 5, win.grabbedMaxX + ldx);
+                                        maxY = Math.max(minY + 5, win.grabbedMaxY + ldy);
+                                    } else if (win.resizeHandle === "TL") {
+                                        minX = Math.min(maxX - 5, win.grabbedMinX + ldx);
+                                        minY = Math.min(maxY - 5, win.grabbedMinY + ldy);
+                                    } else if (win.resizeHandle === "TR") {
+                                        maxX = Math.max(minX + 5, win.grabbedMaxX + ldx);
+                                        minY = Math.min(maxY - 5, win.grabbedMinY + ldy);
+                                    } else if (win.resizeHandle === "BL") {
+                                        minX = Math.min(maxX - 5, win.grabbedMinX + ldx);
+                                        maxY = Math.max(minY + 5, win.grabbedMaxY + ldy);
+                                    }
+                                    
+                                    let W0 = win.grabbedMaxX - win.grabbedMinX;
+                                    let H0 = win.grabbedMaxY - win.grabbedMinY;
+                                    if (W0 === 0) W0 = 1;
+                                    if (H0 === 0) H0 = 1;
+                                    
+                                    let scaleX = (maxX - minX) / W0;
+                                    let scaleY = (maxY - minY) / H0;
+                                    
+                                    let refX = win.grabbedMinX;
+                                    let refY = win.grabbedMinY;
+                                    if (win.resizeHandle === "TL") { refX = win.grabbedMaxX; refY = win.grabbedMaxY; }
+                                    else if (win.resizeHandle === "TR") { refX = win.grabbedMinX; refY = win.grabbedMaxY; }
+                                    else if (win.resizeHandle === "BL") { refX = win.grabbedMaxX; refY = win.grabbedMinY; }
+                                    
+                                    let finalAction = cloneAction(win.actionBeforeResize);
+                                    scaleAction(finalAction, scaleX, scaleY, refX, refY);
+                                    
+                                    win.actionHistory[win.selectedElementIndex] = finalAction;
+                                    
+                                    win.actionBeforeResize = null;
+                                    win.resizeGrabbed = false;
+                                    win.resizeHandle = "";
+                                    win.grabbedElementDx = 0;
+                                    win.grabbedElementDy = 0;
+                                    win.triggerReplay();
+                                    previewCanvas.requestPaint();
+                                } else if (win.grabbedElementIndex !== -1) {
                                     let dx = win.grabbedElementDx;
                                     let dy = win.grabbedElementDy;
                                     let action = win.actionHistory[win.grabbedElementIndex];
@@ -1268,9 +1783,14 @@ PanelWindow {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
+                        win.selectedElementIndex = -1;
+                        win.grabbedElementIndex = -1;
+                        win.resizeGrabbed = false;
+                        win.rotateGrabbed = false;
                         win.commitAction({ type: "clear" });
                         drawCanvas._clearPending = true;
                         drawCanvas.requestPaint();
+                        previewCanvas.requestPaint();
                     }
                 }
             }
