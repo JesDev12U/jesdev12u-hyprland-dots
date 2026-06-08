@@ -32,6 +32,17 @@ success() { echo -e "${GREEN}:: $1${NC}"; }
 warning() { echo -e "${YELLOW}Warning: $1${NC}"; }
 error() { echo -e "${RED}Error: $1${NC}" >&2; }
 
+truncate_str() {
+    local str="$1"
+    local max_len="$2"
+    if [ "${#str}" -gt "$max_len" ]; then
+        echo "${str:0:$((max_len-3))}..."
+    else
+        echo "$str"
+    fi
+}
+
+
 # Setup log file
 LOG_FILE="$HOME/.jesdev12u-hyprland-install.log"
 echo "=== LOG DE INSTALACIÓN - $(date) ===" > "$LOG_FILE"
@@ -127,7 +138,19 @@ sudo() {
         echo -e "\n${YELLOW}:: Se requieren privilegios de sudo para: sudo $*${NC}" > /dev/tty
         echo -e "${YELLOW}:: Por favor, introduce tu contraseña de administrador:${NC}" > /dev/tty
         
+        local auth_success=0
         if command sudo -v < /dev/tty > /dev/tty 2>&1; then
+            auth_success=1
+        fi
+        
+        # Limpiar las 4 líneas de prompt de sudo y reposicionar el cursor
+        echo -ne "\e[4A" > /dev/tty
+        for i in {1..4}; do
+            echo -ne "\e[2K\r\e[1B" > /dev/tty
+        done
+        echo -ne "\e[4A\r" > /dev/tty
+        
+        if [ "$auth_success" -eq 1 ]; then
             echo -ne "\e[?25l" > /dev/tty # Ocultar cursor
             
             # Reiniciar el spinner si estaba corriendo
@@ -143,6 +166,7 @@ sudo() {
         fi
     fi
 }
+
 
 
 cleanup() {
@@ -266,16 +290,30 @@ start_spinner() {
                 log_lines=("" "${log_lines[@]}")
             done
             
-            echo -ne "\e[${lines_up}A\e[2K\r ${BLUE}${spinner[i]}${NC} [$(printf "%02d" $step)/10] ${CYAN}${msg}${NC} ... (${elapsed}s)\e[${lines_up}B\r"
+            # Obtener ancho de terminal dinámicamente y truncar mensaje
+            local cols=$(tput cols 2>/dev/null || echo 80)
+            local max_msg_len=$((cols - 22))
+            if [ $max_msg_len -lt 10 ]; then max_msg_len=10; fi
+            local truncated_msg
+            truncated_msg=$(truncate_str "$msg" "$max_msg_len")
+            
+            echo -ne "\e[${lines_up}A\e[2K\r ${BLUE}${spinner[i]}${NC} [$(printf "%02d" $step)/10] ${CYAN}${truncated_msg}${NC} ... (${elapsed}s)\e[${lines_up}B\r"
             
             echo -ne "\e[4A"
             for ((l=0; l<5; l++)); do
                 local line="${log_lines[l]}"
-                line=$(echo "$line" | sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/^[[:space:]]*//' | cut -c 1-72)
+                # Eliminar códigos ANSI y espacios al inicio
+                local clean_line
+                clean_line=$(echo "$line" | sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/^[[:space:]]*//')
+                local max_log_len=$((cols - 6))
+                if [ $max_log_len -lt 10 ]; then max_log_len=10; fi
+                local truncated_line
+                truncated_line=$(truncate_str "$clean_line" "$max_log_len")
+                
                 if [ $l -lt 4 ]; then
-                    echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${line}${NC}\e[1B"
-                  else
-                    echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${line}${NC}\r"
+                    echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${truncated_line}${NC}\e[1B"
+                else
+                    echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${truncated_line}${NC}\r"
                 fi
             done
             
@@ -305,13 +343,19 @@ end_step() {
     
     local elapsed=$(( $(date +%s) - start_t ))
     
+    local cols=$(tput cols 2>/dev/null || echo 80)
+    local max_msg_len=$((cols - 22))
+    if [ $max_msg_len -lt 10 ]; then max_msg_len=10; fi
+    local truncated_msg
+    truncated_msg=$(truncate_str "$msg" "$max_msg_len")
+    
     echo -ne "\e[${lines_up}A\e[2K\r"
     if [ "$status" -eq 0 ]; then
-        echo -ne " ${GREEN}✔${NC} [$(printf "%02d" $step)/10] ${NC}${msg}${NC} (${elapsed}s)"
+        echo -ne " ${GREEN}✔${NC} [$(printf "%02d" $step)/10] ${NC}${truncated_msg}${NC} (${elapsed}s)"
     elif [ "$status" -eq 2 ]; then
-        echo -ne " ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${msg}${NC} (omitido)"
+        echo -ne " ${YELLOW}❯${NC} [$(printf "%02d" $step)/10] ${YELLOW}${truncated_msg}${NC} (omitido)"
     else
-        echo -ne " ${RED}✘${NC} [$(printf "%02d" $step)/10] ${RED}${msg}${NC} (${elapsed}s)"
+        echo -ne " ${RED}✘${NC} [$(printf "%02d" $step)/10] ${RED}${truncated_msg}${NC} (${elapsed}s)"
     fi
     echo -ne "\e[${lines_up}B\r"
 }
@@ -330,7 +374,20 @@ run_step() {
         echo -ne "\e[?25h\e[0m"
         echo -e "\n${YELLOW}:: Los privilegios de sudo han expirado o no están activos.${NC}"
         echo -e "${YELLOW}:: Por favor, introduce tu contraseña para continuar con el paso $step:${NC}"
-        if ! command sudo -v; then
+        
+        local auth_success=0
+        if command sudo -v; then
+            auth_success=1
+        fi
+        
+        # Limpiar las 4 líneas de prompt de sudo y reposicionar el cursor
+        echo -ne "\e[4A"
+        for i in {1..4}; do
+            echo -ne "\e[2K\r\e[1B"
+        done
+        echo -ne "\e[4A\r"
+        
+        if [ "$auth_success" -ne 1 ]; then
             error "Se requieren privilegios de administrador para continuar."
             exit 1
         fi
@@ -662,11 +719,24 @@ step_10() {
 }
 
 # Print layout
+local cols=$(tput cols 2>/dev/null || echo 80)
+local max_msg_len=$((cols - 16))
+if [ $max_msg_len -lt 10 ]; then max_msg_len=10; fi
+
 echo -e "${BLUE}[+] Instalando Caelestia [0/10]${NC}"
 for i in {1..10}; do
-    echo -e " ${GRAY}⠇${NC} [$(printf "%02d" $i)/10] ${GRAY}${STEP_MSGS[i]}${NC}"
+    local truncated_msg
+    truncated_msg=$(truncate_str "${STEP_MSGS[i]}" "$max_msg_len")
+    echo -e " ${GRAY}⠇${NC} [$(printf "%02d" $i)/10] ${GRAY}${truncated_msg}${NC}"
 done
-echo -e "  ${GRAY}────────────────────────────────────────────────────────────────────────${NC}"
+
+local width=$((cols - 4))
+if [ $width -gt 72 ]; then width=72; fi
+if [ $width -lt 10 ]; then width=10; fi
+local sep_line=""
+for ((i=0; i<width; i++)); do sep_line="${sep_line}─"; done
+echo -e "  ${GRAY}${sep_line}${NC}"
+
 for i in {1..4}; do
     echo -e " ${GRAY}│${NC}"
 done
