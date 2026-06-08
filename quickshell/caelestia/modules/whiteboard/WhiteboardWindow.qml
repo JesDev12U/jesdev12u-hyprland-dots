@@ -101,6 +101,18 @@ PanelWindow {
     property real grabbedElementInitialRotation: 0
     property real grabbedElementRotationDelta: 0
 
+    // Current text toolbar properties
+    property string activeTextFontFamily: "sans-serif" // "sans-serif", "serif", "monospace", "cursive"
+    property bool activeTextIsBold: true
+    property bool activeTextIsItalic: false
+
+    function getTextEstWidth(text, fontSize, fontFamily) {
+        let factor = 0.55;
+        if (fontFamily === "monospace") factor = 0.60;
+        else if (fontFamily === "cursive") factor = 0.45;
+        return text.length * fontSize * factor;
+    }
+
     function cloneAction(action) {
         if (!action) return null;
         let clone = {
@@ -109,6 +121,9 @@ PanelWindow {
             penSize: action.penSize,
             tool: action.tool,
             fontSize: action.fontSize,
+            fontFamily: action.fontFamily,
+            isBold: action.isBold,
+            isItalic: action.isItalic,
             text: action.text,
             shapeType: action.shapeType,
             x: action.x,
@@ -171,7 +186,7 @@ PanelWindow {
             action.minY = Math.min(action.y1, action.y2);
             action.maxY = Math.max(action.y1, action.y2);
         } else if (action.type === "text") {
-            let estWidth = action.text.length * action.fontSize * 0.55;
+            let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
             let estHeight = action.fontSize;
             action.minX = action.x - 12;
             action.maxX = action.x - 12 + estWidth;
@@ -230,7 +245,7 @@ PanelWindow {
             for (var h = win.historyStep; h >= 0; h--) {
                 var action = win.actionHistory[h];
                 if (action && action.type === "text") {
-                    let estWidth = action.text.length * action.fontSize * 0.55;
+                    let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
                     let estHeight = action.fontSize;
                     let xStart = action.x - 12;
                     let yStart = action.y - estHeight / 2;
@@ -265,7 +280,7 @@ PanelWindow {
                     action.minY = Math.min(action.y1, action.y2);
                     action.maxY = Math.max(action.y1, action.y2);
                 } else if (action.type === "text") {
-                    let estWidth = action.text.length * action.fontSize * 0.55;
+                    let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
                     let estHeight = action.fontSize;
                     action.minX = action.x - 12;
                     action.maxX = action.x - 12 + estWidth;
@@ -392,7 +407,7 @@ PanelWindow {
             action.minY = Math.min(action.y1, action.y2);
             action.maxY = Math.max(action.y1, action.y2);
         } else if (action.type === "text") {
-            let estWidth = action.text.length * action.fontSize * 0.55;
+            let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
             let estHeight = action.fontSize;
             action.minX = action.x - 12;
             action.maxX = action.x - 12 + estWidth;
@@ -561,7 +576,13 @@ PanelWindow {
                             if (action.type === "text") {
                                 ctx.globalCompositeOperation = "source-over";
                                 ctx.fillStyle = action.color;
-                                ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
+                                let weight = (action.isBold === undefined || action.isBold) ? "bold" : "normal";
+                                let style = action.isItalic ? "italic" : "normal";
+                                let family = "Inter, system-ui, sans-serif";
+                                if (action.fontFamily === "serif") family = "Georgia, serif";
+                                else if (action.fontFamily === "monospace") family = "JetBrains Mono, monospace";
+                                else if (action.fontFamily === "cursive") family = "Caveat, cursive";
+                                ctx.font = style + " " + weight + " " + action.fontSize + "px " + family;
                                 ctx.textBaseline = "middle";
                                 ctx.fillText(action.text, action.x, action.y);
                             } else if (action.type === "shape") {
@@ -844,8 +865,15 @@ PanelWindow {
                     
                     color: win.currentColor
                     font.pixelSize: Math.max(12, 16 + win.currentSizeRatio * 48)
-                    font.bold: true
-                    font.family: "Inter, sans-serif"
+                    font.bold: win.activeTextIsBold
+                    font.italic: win.activeTextIsItalic
+                    font.family: {
+                        if (win.activeTextFontFamily === "sans-serif") return "Inter, sans-serif";
+                        if (win.activeTextFontFamily === "serif") return "Georgia, serif";
+                        if (win.activeTextFontFamily === "monospace") return "JetBrains Mono, monospace";
+                        if (win.activeTextFontFamily === "cursive") return "Caveat, cursive";
+                        return "sans-serif";
+                    }
                     
                     verticalAlignment: TextInput.AlignVCenter
                     leftPadding: 12
@@ -901,6 +929,9 @@ PanelWindow {
                                 action.text = text;
                                 action.color = win.currentColor.toString();
                                 action.fontSize = font.pixelSize;
+                                action.fontFamily = win.activeTextFontFamily;
+                                action.isBold = win.activeTextIsBold;
+                                action.isItalic = win.activeTextIsItalic;
                                 win.editingTextIndex = -1;
                             } else {
                                 let action = {
@@ -909,7 +940,10 @@ PanelWindow {
                                     y: y + height / 2,
                                     text: text,
                                     color: win.currentColor.toString(),
-                                    fontSize: font.pixelSize
+                                    fontSize: font.pixelSize,
+                                    fontFamily: win.activeTextFontFamily,
+                                    isBold: win.activeTextIsBold,
+                                    isItalic: win.activeTextIsItalic
                                 };
                                 win.commitAction(action);
                             }
@@ -926,6 +960,186 @@ PanelWindow {
                         }
                         text = "";
                         visible = false;
+                    }
+                }
+
+                // =========================================================
+                // --- TEXT STYLING TOOLBAR MODAL ---
+                // =========================================================
+                Rectangle {
+                    id: textStyleModal
+                    z: 20
+                    parent: cameraRig
+                    
+                    width: 204
+                    height: 44
+                    radius: Tokens.rounding.medium
+                    color: win.panelBgColor
+                    border.width: 1
+                    border.color: win.panelBorderColor
+                    
+                    x: {
+                        let editorScreenX = zoomContainer.x + activeTextEditor.x * zoomContainer.scale;
+                        let editorScreenWidth = activeTextEditor.width * zoomContainer.scale;
+                        let targetX = editorScreenX + (editorScreenWidth - width) / 2;
+                        return Math.max(8, Math.min(targetX, cameraRig.width - width - 8));
+                    }
+                    y: {
+                        let editorScreenY = zoomContainer.y + activeTextEditor.y * zoomContainer.scale;
+                        let targetY = editorScreenY - height - 8;
+                        if (targetY < 8) {
+                            let editorScreenHeight = activeTextEditor.height * zoomContainer.scale;
+                            return editorScreenY + editorScreenHeight + 8;
+                        }
+                        return targetY;
+                    }
+                    
+                    visible: opacity > 0.0
+                    opacity: activeTextEditor.visible ? 1.0 : 0.0
+                    scale: activeTextEditor.visible ? 1.0 : 0.95
+                    
+                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                    
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        spacing: 2
+                        
+                        Row {
+                            spacing: 1
+                            Layout.fillWidth: true
+                            
+                            // Sans
+                            Rectangle {
+                                id: btnSans
+                                width: 28; height: 28; radius: Tokens.rounding.small
+                                color: win.activeTextFontFamily === "sans-serif" ? Colours.palette.m3primaryContainer : (mouseAreaSans.containsMouse ? Colours.palette.m3surfaceVariant : "transparent")
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Ag"
+                                    font.family: "Inter, sans-serif"
+                                    font.bold: true
+                                    font.pixelSize: 11
+                                    color: win.activeTextFontFamily === "sans-serif" ? Colours.palette.m3onPrimaryContainer : win.baseTextColor
+                                }
+                                MouseArea {
+                                    id: mouseAreaSans
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onClicked: win.activeTextFontFamily = "sans-serif"
+                                }
+                            }
+                            
+                            // Serif
+                            Rectangle {
+                                id: btnSerif
+                                width: 28; height: 28; radius: Tokens.rounding.small
+                                color: win.activeTextFontFamily === "serif" ? Colours.palette.m3primaryContainer : (mouseAreaSerif.containsMouse ? Colours.palette.m3surfaceVariant : "transparent")
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Ag"
+                                    font.family: "Georgia, serif"
+                                    font.bold: true
+                                    font.pixelSize: 11
+                                    color: win.activeTextFontFamily === "serif" ? Colours.palette.m3onPrimaryContainer : win.baseTextColor
+                                }
+                                MouseArea {
+                                    id: mouseAreaSerif
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onClicked: win.activeTextFontFamily = "serif"
+                                }
+                            }
+                            
+                            // Mono
+                            Rectangle {
+                                id: btnMono
+                                width: 28; height: 28; radius: Tokens.rounding.small
+                                color: win.activeTextFontFamily === "monospace" ? Colours.palette.m3primaryContainer : (mouseAreaMono.containsMouse ? Colours.palette.m3surfaceVariant : "transparent")
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Ag"
+                                    font.family: "monospace"
+                                    font.bold: true
+                                    font.pixelSize: 10
+                                    color: win.activeTextFontFamily === "monospace" ? Colours.palette.m3onPrimaryContainer : win.baseTextColor
+                                }
+                                MouseArea {
+                                    id: mouseAreaMono
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onClicked: win.activeTextFontFamily = "monospace"
+                                }
+                            }
+                            
+                            // Cursive
+                            Rectangle {
+                                id: btnCursive
+                                width: 28; height: 28; radius: Tokens.rounding.small
+                                color: win.activeTextFontFamily === "cursive" ? Colours.palette.m3primaryContainer : (mouseAreaCursive.containsMouse ? Colours.palette.m3surfaceVariant : "transparent")
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Ag"
+                                    font.family: "cursive"
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                    color: win.activeTextFontFamily === "cursive" ? Colours.palette.m3onPrimaryContainer : win.baseTextColor
+                                }
+                                MouseArea {
+                                    id: mouseAreaCursive
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onClicked: win.activeTextFontFamily = "cursive"
+                                }
+                            }
+                        }
+                        
+                        Rectangle {
+                            width: 1
+                            height: 20
+                            color: win.panelBorderColor
+                        }
+                        
+                        Item {
+                            width: 28; height: 28
+                            Rectangle {
+                                id: btnBoldBg
+                                anchors.fill: parent; radius: Tokens.rounding.small; z: -1
+                                color: win.activeTextIsBold ? Colours.palette.m3primaryContainer : (mouseAreaBold.containsMouse ? Colours.palette.m3surfaceVariant : "transparent")
+                            }
+                            MaterialIcon {
+                                anchors.centerIn: parent
+                                text: "format_bold"
+                                color: win.activeTextIsBold ? Colours.palette.m3onPrimaryContainer : win.baseTextColor
+                            }
+                            MouseArea {
+                                id: mouseAreaBold
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: win.activeTextIsBold = !win.activeTextIsBold
+                            }
+                        }
+                        
+                        Item {
+                            width: 28; height: 28
+                            Rectangle {
+                                id: btnItalicBg
+                                anchors.fill: parent; radius: Tokens.rounding.small; z: -1
+                                color: win.activeTextIsItalic ? Colours.palette.m3primaryContainer : (mouseAreaItalic.containsMouse ? Colours.palette.m3surfaceVariant : "transparent")
+                            }
+                            MaterialIcon {
+                                anchors.centerIn: parent
+                                text: "format_italic"
+                                color: win.activeTextIsItalic ? Colours.palette.m3onPrimaryContainer : win.baseTextColor
+                            }
+                            MouseArea {
+                                id: mouseAreaItalic
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: win.activeTextIsItalic = !win.activeTextIsItalic
+                            }
+                        }
                     }
                 }
 
@@ -1086,7 +1300,13 @@ PanelWindow {
                                     }
                                     ctx.globalCompositeOperation = "source-over";
                                     ctx.fillStyle = action.color;
-                                    ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
+                                    let weight = (action.isBold === undefined || action.isBold) ? "bold" : "normal";
+                                    let style = action.isItalic ? "italic" : "normal";
+                                    let family = "Inter, system-ui, sans-serif";
+                                    if (action.fontFamily === "serif") family = "Georgia, serif";
+                                    else if (action.fontFamily === "monospace") family = "JetBrains Mono, monospace";
+                                    else if (action.fontFamily === "cursive") family = "Caveat, cursive";
+                                    ctx.font = style + " " + weight + " " + action.fontSize + "px " + family;
                                     ctx.textBaseline = "middle";
                                     ctx.fillText(action.text, action.x, action.y);
                                     ctx.restore();
@@ -1262,12 +1482,21 @@ PanelWindow {
                                     win.currentColor = action.color;
                                     win.penSizeRatio = Math.max(0.0, Math.min(1.0, (action.fontSize - 16) / 48));
                                     
+                                    win.activeTextFontFamily = action.fontFamily || "sans-serif";
+                                    win.activeTextIsBold = (action.isBold !== undefined) ? action.isBold : true;
+                                    win.activeTextIsItalic = !!action.isItalic;
+                                    
                                     activeTextEditor.visible = true;
                                     win.triggerReplay();
                                 } else {
                                     win.editingTextIndex = -1;
                                     activeTextEditor.x = mouse.x;
                                     activeTextEditor.y = mouse.y - activeTextEditor.height / 2;
+                                    
+                                    win.activeTextFontFamily = "sans-serif";
+                                    win.activeTextIsBold = true;
+                                    win.activeTextIsItalic = false;
+                                    
                                     activeTextEditor.visible = true;
                                 }
                                 return;
