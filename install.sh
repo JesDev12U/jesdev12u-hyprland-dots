@@ -750,6 +750,10 @@ step_9() {
             if [ ! -f /etc/default/grub.bak ]; then
                 sudo cp /etc/default/grub /etc/default/grub.bak >> "$LOG_FILE" 2>&1
             fi
+            if [ -f "$INSTALL_DIR/grub" ]; then
+                log "Copiando archivo grub personalizado del repositorio..." >> "$LOG_FILE" 2>&1
+                sudo cp "$INSTALL_DIR/grub" /etc/default/grub >> "$LOG_FILE" 2>&1
+            fi
             if grep -q "^GRUB_THEME=" /etc/default/grub; then
                 sudo sed -i 's|^GRUB_THEME=.*|GRUB_THEME="/boot/grub/themes/custom-theme/theme.txt"|' /etc/default/grub >> "$LOG_FILE" 2>&1
             else
