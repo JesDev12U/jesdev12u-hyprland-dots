@@ -738,6 +738,13 @@ step_9() {
     caelestia wallpaper -f "$HOME/Pictures/Wallpapers/waves.png" >> "$LOG_FILE" 2>&1 || true
     sleep 0.5
     
+    # Si existe un esquema de colores personalizado en el repositorio, restaurarlo
+    if [ -f "$INSTALL_DIR/caelestia/scheme.json" ]; then
+        log "Restaurando esquema de colores personalizado..." >> "$LOG_FILE" 2>&1
+        mkdir -p "$STATE_DIR/caelestia" >> "$LOG_FILE" 2>&1
+        cp "$INSTALL_DIR/caelestia/scheme.json" "$STATE_DIR/caelestia/scheme.json" >> "$LOG_FILE" 2>&1
+    fi
+    
     hyprctl reload >> "$LOG_FILE" 2>&1 || true
     
     if [ -f "$INSTALL_DIR/sddm.conf" ]; then
