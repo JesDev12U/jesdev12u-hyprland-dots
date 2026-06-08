@@ -749,21 +749,20 @@ step_10() {
 }
 
 # Print layout
-local cols=$(tput cols 2>/dev/null || echo 80)
-local max_msg_len=$((cols - 16))
+cols=$(tput cols 2>/dev/null || echo 80)
+max_msg_len=$((cols - 16))
 if [ $max_msg_len -lt 10 ]; then max_msg_len=10; fi
 
 echo -e "${BLUE}[+] Instalando Caelestia [0/10]${NC}"
 for i in {1..10}; do
-    local truncated_msg
     truncated_msg=$(truncate_str "${STEP_MSGS[i]}" "$max_msg_len")
     echo -e " ${GRAY}⠇${NC} [$(printf "%02d" $i)/10] ${GRAY}${truncated_msg}${NC}"
 done
 
-local width=$((cols - 4))
+width=$((cols - 4))
 if [ $width -gt 72 ]; then width=72; fi
 if [ $width -lt 10 ]; then width=10; fi
-local sep_line=""
+sep_line=""
 for ((i=0; i<width; i++)); do sep_line="${sep_line}─"; done
 echo -e "  ${GRAY}${sep_line}${NC}"
 
