@@ -17,7 +17,7 @@ Region {
 
     x: bar.clampedWidth + win.dragMaskPadding
     y: clampedThickness + win.dragMaskPadding
-    width: win.width - x
+    width: win.width - bar.clampedWidth - clampedThickness - win.dragMaskPadding * 2
     height: win.height - clampedThickness * 2 - win.dragMaskPadding * 2
     intersection: Intersection.Xor
 

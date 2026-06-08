@@ -102,7 +102,7 @@ ColumnLayout {
         }
     }
 
-    spacing: Tokens.spacing.normal
+    spacing: Tokens.spacing.medium
 
     Repeater {
         id: repeater
@@ -163,13 +163,6 @@ ColumnLayout {
                 delegate: WrappedLoader {
                     visible: !root.fullscreen
                     sourceComponent: StatusIcons {}
-                }
-            }
-            DelegateChoice {
-                roleValue: "whiteboard"
-                delegate: WrappedLoader {
-                    visible: !root.fullscreen
-                    sourceComponent: WhiteboardButton {}
                 }
             }
             DelegateChoice {
