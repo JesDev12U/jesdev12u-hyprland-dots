@@ -166,6 +166,13 @@ ColumnLayout {
                 }
             }
             DelegateChoice {
+                roleValue: "whiteboard"
+                delegate: WrappedLoader {
+                    visible: !root.fullscreen
+                    sourceComponent: WhiteboardButton {}
+                }
+            }
+            DelegateChoice {
                 roleValue: "power"
                 delegate: WrappedLoader {
                     sourceComponent: Power {
