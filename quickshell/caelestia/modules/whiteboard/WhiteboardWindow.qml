@@ -10,25 +10,40 @@ import qs.services
 import qs.utils
 
 
-FloatingWindow {
+PanelWindow {
     id: win
 
-    color: Colours.tPalette.m3surface
-    surfaceFormat.opaque: false
+    color: "transparent"
     visible: false
 
-    // Window properties
-    title: "Caelestia Whiteboard"
+    screen: WhiteboardService.targetScreen || (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+
+    contentItem.Config.screen: screen ? screen.name : ""
+    contentItem.Tokens.screen: screen ? screen.name : ""
+
+    // Position next to the left bar using anchors & margins
+    anchors.left: true
+    anchors.top: true
+    margins.left: 80
+    margins.top: screen ? Math.max(16, Math.min(WhiteboardService.targetY - implicitHeight / 2, screen.height - implicitHeight - 16)) : 0
+
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+    WlrLayershell.exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Overlay
+
+    // Window dimensions
     implicitWidth: 600
     implicitHeight: 450
-    minimumSize.width: 400
-    minimumSize.height: 300
 
     onVisibleChanged: {
         if (!visible) {
             showSizeConfig = false;
             showColorPicker = false;
         }
+    }
+
+    Component.onCompleted: {
+        WhiteboardService.window = win;
     }
 
     // =========================================================
@@ -125,6 +140,27 @@ FloatingWindow {
         target: "whiteboard"
         property alias visible: win.visible
         function toggle(): void {
+            if (!win.visible) {
+                // Find focused screen
+                const activeMon = Hypr.focusedMonitor;
+                let activeScreen = null;
+                if (activeMon) {
+                    for (let i = 0; i < Quickshell.screens.length; i++) {
+                        if (Quickshell.screens[i].name === activeMon.name) {
+                            activeScreen = Quickshell.screens[i];
+                            break;
+                        }
+                    }
+                }
+                if (!activeScreen && Quickshell.screens.length > 0) {
+                    activeScreen = Quickshell.screens[0];
+                }
+                
+                WhiteboardService.targetScreen = activeScreen;
+                if (activeScreen) {
+                    WhiteboardService.targetY = activeScreen.height / 2;
+                }
+            }
             win.visible = !win.visible;
         }
     }

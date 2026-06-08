@@ -169,7 +169,9 @@ ColumnLayout {
                 roleValue: "whiteboard"
                 delegate: WrappedLoader {
                     visible: !root.fullscreen
-                    sourceComponent: WhiteboardButton {}
+                    sourceComponent: WhiteboardButton {
+                        screen: root.screen
+                    }
                 }
             }
             DelegateChoice {

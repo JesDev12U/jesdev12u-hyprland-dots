@@ -8,6 +8,8 @@ import Quickshell.Io
 Item {
     id: root
 
+    required property ShellScreen screen
+
     implicitWidth: icon.implicitHeight + Tokens.padding.small * 2
     implicitHeight: icon.implicitHeight
 
@@ -18,8 +20,8 @@ Item {
         implicitHeight: icon.implicitHeight + Tokens.padding.small * 2
         radius: Tokens.rounding.full
         onClicked: {
-            toggleProc.running = false;
-            toggleProc.running = true;
+            let absoluteY = root.mapToItem(null, 0, root.height / 2).y;
+            WhiteboardService.toggle(root.screen, absoluteY);
         }
     }
 
@@ -31,10 +33,5 @@ Item {
         text: "draw"
         color: Colours.palette.m3primary
         fontStyle: Tokens.font.icon.builders.small.weight(Font.Bold).build()
-    }
-
-    Process {
-        id: toggleProc
-        command: ["quickshell", "ipc", "whiteboard", "toggle"]
     }
 }
