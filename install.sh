@@ -452,13 +452,16 @@ create_symlink() {
     local src="$1"
     local dest="$2"
     
-    if [ -e "$dest" ] || [ -L "$dest" ]; then
-        log "Sobreescribiendo configuración existente en $dest..." >> "$LOG_FILE" 2>&1
-        rm -rf "$dest" >> "$LOG_FILE" 2>&1
+    if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+        log "Eliminando directorio de configuración existente en $dest..." >> "$LOG_FILE" 2>&1
+        rm -rf "$dest" >> "$LOG_FILE" 2>&1 || return 1
+    elif [ -e "$dest" ] || [ -L "$dest" ]; then
+        log "Eliminando archivo o enlace existente en $dest..." >> "$LOG_FILE" 2>&1
+        rm -f "$dest" >> "$LOG_FILE" 2>&1 || return 1
     fi
     
-    mkdir -p "$(dirname "$dest")" >> "$LOG_FILE" 2>&1
-    ln -s "$src" "$dest" >> "$LOG_FILE" 2>&1
+    mkdir -p "$(dirname "$dest")" >> "$LOG_FILE" 2>&1 || return 1
+    ln -sfn "$src" "$dest" >> "$LOG_FILE" 2>&1 || return 1
 }
 
 # Helper to clone or update Zsh plugins
