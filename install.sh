@@ -519,29 +519,59 @@ step_1() {
         fi
     fi
 
+    check_helper_works() {
+        local helper="$1"
+        if command -v "$helper" >/dev/null 2>&1; then
+            if "$helper" --version >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+        return 1
+    }
+
     # Detect or install AUR helper
-    AUR_HELPER=""
-    if command -v paru >/dev/null 2>&1; then
-        AUR_HELPER="paru"
-        log "Se detectó paru como helper de AUR." >> "$LOG_FILE" 2>&1
-    elif command -v yay >/dev/null 2>&1; then
-        AUR_HELPER="yay"
-        log "Se detectó yay como helper de AUR." >> "$LOG_FILE" 2>&1
+    AUR_HELPER="paru"
+    if check_helper_works "paru"; then
+        log "Se detectó paru instalado y funcionando." >> "$LOG_FILE" 2>&1
     else
-        log "Instalando dependencias base y paru-bin (AUR Helper)..." >> "$LOG_FILE" 2>&1
+        if command -v paru >/dev/null 2>&1; then
+            log "Se detectó paru pero no funciona (librería libalpm desactualizada). Reconstruyendo desde fuentes..." >> "$LOG_FILE" 2>&1
+        else
+            log "Instalando dependencias base y paru (AUR Helper) desde fuentes..." >> "$LOG_FILE" 2>&1
+        fi
+        
         sudo pacman -S --needed --noconfirm git base-devel >> "$LOG_FILE" 2>&1
+        
         local tmp_dir
         tmp_dir=$(mktemp -d)
         cd "$tmp_dir"
-        git clone https://aur.archlinux.org/paru-bin.git >> "$LOG_FILE" 2>&1
-        cd paru-bin
-        # Construir el paquete sin instalarlo (no requiere privilegios de root/sudo)
-        makepkg --noconfirm >> "$LOG_FILE" 2>&1
-        # Instalar el archivo compilado resultante usando sudo de forma directa en el script
-        sudo pacman -U --noconfirm paru-bin-*.pkg.tar.zst >> "$LOG_FILE" 2>&1
+        if git clone https://aur.archlinux.org/paru.git >> "$LOG_FILE" 2>&1; then
+            cd paru
+            # makepkg se encargará de instalar rust/cargo automáticamente como dependencias de construcción
+            if makepkg --noconfirm -s >> "$LOG_FILE" 2>&1; then
+                # Instalar el paquete compilado
+                sudo pacman -U --noconfirm paru-*.pkg.tar.zst >> "$LOG_FILE" 2>&1
+            else
+                cd "$CURRENT_DIR"
+                rm -rf "$tmp_dir" >> "$LOG_FILE" 2>&1
+                error "Fallo al compilar paru desde fuentes." >> "$LOG_FILE" 2>&1
+                exit 1
+            fi
+        else
+            cd "$CURRENT_DIR"
+            rm -rf "$tmp_dir" >> "$LOG_FILE" 2>&1
+            error "Fallo al clonar paru desde AUR." >> "$LOG_FILE" 2>&1
+            exit 1
+        fi
         cd "$CURRENT_DIR"
         rm -rf "$tmp_dir" >> "$LOG_FILE" 2>&1
-        AUR_HELPER="paru"
+        
+        # Validación final
+        if ! check_helper_works "paru"; then
+            error "paru se compiló pero sigue sin funcionar. Revisa el log." >> "$LOG_FILE" 2>&1
+            exit 1
+        fi
+        log "paru se compiló, instaló y validó con éxito." >> "$LOG_FILE" 2>&1
     fi
 
     # Guardar variables globales para transferir al proceso padre
