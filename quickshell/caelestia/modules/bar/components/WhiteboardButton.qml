@@ -35,6 +35,6 @@ Item {
 
     Process {
         id: toggleProc
-        command: ["caelestia", "toggle", "whiteboard"]
+        command: ["quickshell", "ipc", "whiteboard", "toggle"]
     }
 }
