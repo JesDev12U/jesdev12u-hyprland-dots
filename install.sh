@@ -112,10 +112,10 @@ fi
 # Mantener vivo el token de sudo en segundo plano (refrescando de forma no interactiva)
 (
     while true; do
-        sudo -n -v
+        command sudo -n -v < /dev/null > /dev/null 2>&1
         sleep 30
         kill -0 "$$" || exit
-    done 2>/dev/null
+    done
 ) &
 SUDO_KEEP_ALIVE_PID=$!
 echo ""
