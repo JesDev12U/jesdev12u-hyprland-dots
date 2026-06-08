@@ -26,6 +26,9 @@ CYAN='\033[0;36m'
 GRAY='\033[0;90m'
 NC='\033[0m' # No Color
 
+ESC=$'\e'
+BEL=$'\a'
+
 # Helper output functions (mainly for logging)
 log() { echo -e "${CYAN}:: $1${NC}"; }
 success() { echo -e "${GREEN}:: $1${NC}"; }
@@ -224,8 +227,9 @@ cleanup() {
         done
     fi
     
-    # 2. Show cursor and reset text formatting immediately
+    # 2. Show cursor, enable line-wrap, and reset text formatting immediately
     echo -ne "\e[?25h"  # Show cursor
+    echo -ne "\e[?7h"   # Enable line-wrap
     echo -ne "\e[0m"    # Reset text formatting
     stty sane 2>/dev/null || true
     
@@ -273,6 +277,8 @@ start_spinner() {
     local step="$1"
     local msg="$2"
     local lines_up=$((16 - step))
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 80)
     
     stop_spinner
     
@@ -284,34 +290,40 @@ start_spinner() {
             local elapsed=$(( $(date +%s) - start_t ))
             local log_lines=()
             if [ -f "$LOG_FILE" ]; then
-                mapfile -t log_lines < <(tail -n 20 "$LOG_FILE" 2>/dev/null | tr '\r' '\n' | grep -v '^$' | tail -n 5)
+                mapfile -t log_lines < <(
+                    tail -n 50 "$LOG_FILE" 2>/dev/null \
+                    | tr '\r' '\n' \
+                    | tr -d '\b' \
+                    | sed -e "s/\t/    /g" -e "s/${ESC}\[[?0-9;]*[a-zA-Z]//g" -e "s/${ESC}(B//g" -e "s/${ESC}\][^${BEL}]*${BEL}//g" -e 's/^[[:space:]]*//' -e '/^$/d' \
+                    | tail -n 5
+                )
             fi
             for ((l=${#log_lines[@]}; l<5; l++)); do
                 log_lines=("" "${log_lines[@]}")
             done
             
-            # Obtener ancho de terminal dinámicamente y truncar mensaje
-            local cols=$(tput cols 2>/dev/null || echo 80)
+            # Obtener ancho de terminal y truncar mensaje en Bash puro
             local max_msg_len=$((cols - 22))
             if [ $max_msg_len -lt 10 ]; then max_msg_len=10; fi
-            local truncated_msg
-            truncated_msg=$(truncate_str "$msg" "$max_msg_len")
+            local truncated_msg="$msg"
+            if [ "${#msg}" -gt "$max_msg_len" ]; then
+                truncated_msg="${msg:0:$((max_msg_len-3))}..."
+            fi
+            
+            # Deshabilitar auto-wrap temporalmente durante la impresión para evitar desbordes
+            echo -ne "\e[?7l"
             
             echo -ne "\e[${lines_up}A\e[2K\r ${BLUE}${spinner[i]}${NC} [$(printf "%02d" $step)/10] ${CYAN}${truncated_msg}${NC} ... (${elapsed}s)\e[${lines_up}B\r"
             
             echo -ne "\e[4A"
             for ((l=0; l<5; l++)); do
-                local line="${log_lines[l]}"
-                # Eliminar códigos ANSI, secuencias de título (OSC), tabuladores y control
-                local esc=$'\e'
-                local bel=$'\a'
-                local clean_line
-                clean_line=$(echo "$line" | expand -t 4 | tr -d '\r\b')
-                clean_line=$(echo "$clean_line" | sed -e "s/${esc}\][^${bel}]*${bel}//g" -e "s/${esc}\[[0-9;]*[a-zA-Z]//g" -e 's/^[[:space:]]*//')
+                local clean_line="${log_lines[l]}"
                 local max_log_len=$((cols - 6))
                 if [ $max_log_len -lt 10 ]; then max_log_len=10; fi
-                local truncated_line
-                truncated_line=$(truncate_str "$clean_line" "$max_log_len")
+                local truncated_line="$clean_line"
+                if [ "${#clean_line}" -gt "$max_log_len" ]; then
+                    truncated_line="${clean_line:0:$((max_log_len-3))}..."
+                fi
                 
                 if [ $l -lt 4 ]; then
                     echo -ne "\e[2K\r ${GRAY}│${NC} ${GRAY}${truncated_line}${NC}\e[1B"
@@ -320,8 +332,11 @@ start_spinner() {
                 fi
             done
             
+            # Habilitar auto-wrap nuevamente
+            echo -ne "\e[?7h"
+            
             i=$(( (i + 1) % 10 ))
-            sleep 0.1
+            sleep 0.2
         done
     ) &
     SPINNER_PID=$!
@@ -333,6 +348,7 @@ stop_spinner() {
         wait "$SPINNER_PID" 2>/dev/null || true
         unset SPINNER_PID
     fi
+    echo -ne "\e[?7h" # Restore line-wrap
 }
     
 end_step() {
@@ -349,8 +365,13 @@ end_step() {
     local cols=$(tput cols 2>/dev/null || echo 80)
     local max_msg_len=$((cols - 22))
     if [ $max_msg_len -lt 10 ]; then max_msg_len=10; fi
-    local truncated_msg
-    truncated_msg=$(truncate_str "$msg" "$max_msg_len")
+    local truncated_msg="$msg"
+    if [ "${#msg}" -gt "$max_msg_len" ]; then
+        truncated_msg="${msg:0:$((max_msg_len-3))}..."
+    fi
+    
+    # Deshabilitar auto-wrap temporalmente
+    echo -ne "\e[?7l"
     
     echo -ne "\e[${lines_up}A\e[2K\r"
     if [ "$status" -eq 0 ]; then
@@ -361,7 +382,11 @@ end_step() {
         echo -ne " ${RED}✘${NC} [$(printf "%02d" $step)/10] ${RED}${truncated_msg}${NC} (${elapsed}s)"
     fi
     echo -ne "\e[${lines_up}B\r"
+    
+    # Habilitar auto-wrap
+    echo -ne "\e[?7h"
 }
+
 
 run_step() {
     local step="$1"
