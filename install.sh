@@ -537,21 +537,22 @@ step_1() {
         if command -v paru >/dev/null 2>&1; then
             log "Se detectó paru pero no funciona (librería libalpm desactualizada). Reconstruyendo desde fuentes..." >> "$LOG_FILE" 2>&1
         else
-            log "Instalando dependencias base y paru (AUR Helper) desde fuentes..." >> "$LOG_FILE" 2>&1
+            log "Instalando dependencias base, cargo, rust y paru desde fuentes..." >> "$LOG_FILE" 2>&1
         fi
         
         log "Sincronizando base de datos de paquetes de pacman..." >> "$LOG_FILE" 2>&1
         sudo pacman -Sy >> "$LOG_FILE" 2>&1
         
-        sudo pacman -S --needed --noconfirm git base-devel >> "$LOG_FILE" 2>&1
+        log "Instalando compilador Rust/Cargo y dependencias de construcción..." >> "$LOG_FILE" 2>&1
+        sudo pacman -S --needed --noconfirm git base-devel cargo rust >> "$LOG_FILE" 2>&1
         
         local tmp_dir
         tmp_dir=$(mktemp -d)
         cd "$tmp_dir"
         if git clone https://aur.archlinux.org/paru.git >> "$LOG_FILE" 2>&1; then
             cd paru
-            # makepkg se encargará de instalar rust/cargo automáticamente como dependencias de construcción
-            if makepkg --noconfirm -s >> "$LOG_FILE" 2>&1; then
+            # Compilamos directamente (ya tenemos rust y cargo preinstalados, makepkg no requiere -s)
+            if makepkg --noconfirm >> "$LOG_FILE" 2>&1; then
                 # Instalar el paquete compilado
                 sudo pacman -U --noconfirm paru-*.pkg.tar.zst >> "$LOG_FILE" 2>&1
             else
@@ -624,6 +625,10 @@ step_4() {
 
 step_5() {
     log "Instalando paquetes esenciales desde AUR..." >> "$LOG_FILE" 2>&1
+    
+    # Asegurar que las credenciales de sudo estén activas y validadas
+    # de forma que las dependencias internas compiladas por paru puedan instalarse sin pedir contraseña.
+    sudo -v
     
     local AUR_PACKAGES_TO_INSTALL=()
     for pkg in "${AUR_PACKAGES[@]}"; do
