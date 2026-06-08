@@ -729,6 +729,11 @@ step_9() {
         sleep 0.5
     fi
     
+    # Inicializar fondo de pantalla predeterminado para evitar pantalla negra en Quickshell
+    log "Configurando fondo de pantalla predeterminado..." >> "$LOG_FILE" 2>&1
+    caelestia wallpaper -f "$HOME/Pictures/Wallpapers/waves.png" >> "$LOG_FILE" 2>&1 || true
+    sleep 0.5
+    
     hyprctl reload >> "$LOG_FILE" 2>&1 || true
     
     if [ -f "$INSTALL_DIR/sddm.conf" ]; then
