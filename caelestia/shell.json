@@ -5,17 +5,6 @@
                 "scale": 1
             }
         },
-        "font": {
-            "family": {
-                "clock": "Rubik",
-                "material": "Material Symbols Rounded",
-                "mono": "Iosevka Nerd Font Mono",
-                "sans": "Rubik"
-            },
-            "size": {
-                "scale": 0.9970934278350514
-            }
-        },
         "padding": {
             "scale": 1
         },
