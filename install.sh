@@ -109,6 +109,42 @@ fi
 SUDO_KEEP_ALIVE_PID=$!
 echo ""
 
+# Función wrapper de sudo para interceptar llamadas dentro de subprocesos/redirecciones
+sudo() {
+    if command sudo -n true 2>/dev/null; then
+        command sudo "$@"
+    else
+        # Detener el spinner si está corriendo para evitar corromper la pantalla
+        local was_spinner_running=0
+        if [ -n "${SPINNER_PID:-}" ]; then
+            kill -9 "$SPINNER_PID" 2>/dev/null || true
+            wait "$SPINNER_PID" 2>/dev/null || true
+            was_spinner_running=1
+        fi
+        
+        # Mostrar cursor y limpiar formato temporalmente
+        echo -ne "\e[?25h\e[0m" > /dev/tty
+        echo -e "\n${YELLOW}:: Se requieren privilegios de sudo para: sudo $*${NC}" > /dev/tty
+        echo -e "${YELLOW}:: Por favor, introduce tu contraseña de administrador:${NC}" > /dev/tty
+        
+        if command sudo -v < /dev/tty > /dev/tty 2>&1; then
+            echo -ne "\e[?25l" > /dev/tty # Ocultar cursor
+            
+            # Reiniciar el spinner si estaba corriendo
+            if [ "$was_spinner_running" -eq 1 ]; then
+                start_spinner "$CURRENT_STEP" "${STEP_MSGS[CURRENT_STEP]}"
+            fi
+            
+            command sudo "$@"
+        else
+            echo -ne "\e[?25l" > /dev/tty # Ocultar cursor
+            error "Autenticación de sudo fallida." > /dev/tty
+            return 1
+        fi
+    fi
+}
+
+
 cleanup() {
     # Disable exit-on-error inside cleanup so it runs to completion even if some command fails
     set +e
@@ -288,13 +324,24 @@ run_step() {
     CURRENT_STEP="$step"
     START_TIME=$(date +%s)
     
-
+    # Check if sudo credentials are still valid. If not, refresh them interactively before starting the step.
+    if ! sudo -n true 2>/dev/null; then
+        # Temporarily show cursor and reset formatting to prompt the user
+        echo -ne "\e[?25h\e[0m"
+        echo -e "\n${YELLOW}:: Los privilegios de sudo han expirado o no están activos.${NC}"
+        echo -e "${YELLOW}:: Por favor, introduce tu contraseña para continuar con el paso $step:${NC}"
+        if ! command sudo -v; then
+            error "Se requieren privilegios de administrador para continuar."
+            exit 1
+        fi
+        echo -ne "\e[?25l" # Hide cursor again
+    fi
 
     start_spinner "$step" "$msg"
     
     # Temporarily disable set -e in the main shell, but run the step function in a subshell with set -eo pipefail active
     set +e
-    ( set -eo pipefail; "$@" ) >> "$LOG_FILE" 2>&1
+    ( set -eo pipefail; trap 'stop_spinner' EXIT; "$@" ) >> "$LOG_FILE" 2>&1
     local status=$?
     set -e
     
