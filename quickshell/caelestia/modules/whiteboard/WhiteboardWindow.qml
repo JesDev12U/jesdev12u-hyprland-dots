@@ -60,8 +60,8 @@ PanelWindow {
     // --- STATE & CONFIGURATION
     // =========================================================
     property bool isFullScreen: false
-    property string currentTool: "pen" // "mouse", "pen", "brush", "eraser", "line", "rectangle", "circle", "text"
-    property var toolKeys: ["mouse", "pen", "brush", "eraser", "line", "rectangle", "circle", "text"]
+    property string currentTool: "pen" // "mouse", "pen", "brush", "eraser", "line", "rectangle", "circle", "text", "arrow"
+    property var toolKeys: ["mouse", "pen", "brush", "eraser", "line", "arrow", "rectangle", "circle", "text"]
     property int currentToolIndex: Math.max(0, toolKeys.indexOf(currentTool))
 
     // Text editing and moving properties
@@ -172,6 +172,35 @@ PanelWindow {
         if (fontFamily === "monospace") factor = 0.60;
         else if (fontFamily === "cursive") factor = 0.45;
         return text.length * fontSize * factor;
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, penSize, color) {
+        let angle = Math.atan2(y2 - y1, x2 - x1);
+        let arrowLength = Math.max(12, penSize * 2.5);
+        let arrowAngle = Math.PI / 6;
+        let x3 = x2 - arrowLength * Math.cos(angle - arrowAngle);
+        let y3 = y2 - arrowLength * Math.sin(angle - arrowAngle);
+        let x4 = x2 - arrowLength * Math.cos(angle + arrowAngle);
+        let y4 = y2 - arrowLength * Math.sin(angle + arrowAngle);
+
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = penSize;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x3, y3);
+        ctx.lineTo(x4, y4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
     }
 
     function cloneAction(action) {
@@ -363,7 +392,7 @@ PanelWindow {
             }
             
             if (action.type === "shape") {
-                if (action.shapeType === "line") {
+                if (action.shapeType === "line" || action.shapeType === "arrow") {
                     if (distToSegment(mx, my, action.x1, action.y1, action.x2, action.y2) < 15) {
                         return h;
                     }
@@ -684,6 +713,8 @@ PanelWindow {
                                     ctx.moveTo(action.x1, action.y1);
                                     ctx.lineTo(action.x2, action.y2);
                                     ctx.stroke();
+                                } else if (action.shapeType === "arrow") {
+                                    win.drawArrow(ctx, action.x1, action.y1, action.x2, action.y2, action.penSize, action.color);
                                 }
                             } else if (action.type === "stroke") {
                                 if (action.tool === "brush") {
@@ -810,6 +841,8 @@ PanelWindow {
                                     ctx.moveTo(x1, y1);
                                     ctx.lineTo(x2, y2);
                                     ctx.stroke();
+                                } else if (shapePreview.shapeType === "arrow") {
+                                    win.drawArrow(ctx, x1, y1, x2, y2, win.actualToolSize, win.currentColor);
                                 }
                             }
                             
@@ -1358,6 +1391,8 @@ PanelWindow {
                                         ctx.moveTo(action.x1, action.y1);
                                         ctx.lineTo(action.x2, action.y2);
                                         ctx.stroke();
+                                    } else if (action.shapeType === "arrow") {
+                                        win.drawArrow(ctx, action.x1, action.y1, action.x2, action.y2, action.penSize, action.color);
                                     }
                                     ctx.restore();
                                 } else if (action.type === "text") {
@@ -1575,7 +1610,7 @@ PanelWindow {
                                 return;
                             }
 
-                            if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle") {
+                            if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle" || win.currentTool === "arrow") {
                                 shapePreview.startX = mouse.x;
                                 shapePreview.startY = mouse.y;
                                 shapePreview.curX = mouse.x;
@@ -1647,7 +1682,7 @@ PanelWindow {
                                     return;
                                 }
 
-                                if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle") {
+                                if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle" || win.currentTool === "arrow") {
                                     shapePreview.curX = mouse.x;
                                     shapePreview.curY = mouse.y;
                                     previewCanvas.requestPaint();
@@ -1815,7 +1850,7 @@ PanelWindow {
                                 return;
                             }
 
-                            if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle") {
+                            if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle" || win.currentTool === "arrow") {
                                 let shapeTypeSaved = shapePreview.shapeType;
                                 shapePreview.shapeType = "";
                                 previewCanvas.requestPaint();
@@ -2149,6 +2184,12 @@ PanelWindow {
                 ToolButton {
                     iconName: "horizontal_rule"
                     toolKey: "line"
+                }
+
+                // --- TOOL: ARROW ---
+                ToolButton {
+                    iconName: "north_east"
+                    toolKey: "arrow"
                 }
 
                 // --- TOOL: RECTANGLE ---
