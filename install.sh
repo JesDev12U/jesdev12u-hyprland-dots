@@ -540,6 +540,9 @@ step_1() {
             log "Instalando dependencias base y paru (AUR Helper) desde fuentes..." >> "$LOG_FILE" 2>&1
         fi
         
+        log "Sincronizando base de datos de paquetes de pacman..." >> "$LOG_FILE" 2>&1
+        sudo pacman -Sy >> "$LOG_FILE" 2>&1
+        
         sudo pacman -S --needed --noconfirm git base-devel >> "$LOG_FILE" 2>&1
         
         local tmp_dir
