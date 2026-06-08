@@ -45,6 +45,7 @@ PanelWindow {
     onVisibleChanged: {
         if (visible) {
             rootRectangle.forceActiveFocus();
+            win.triggerReplay();
         } else {
             showSizeConfig = false;
             showColorPicker = false;
@@ -2088,8 +2089,9 @@ PanelWindow {
                         win.grabbedElementIndex = -1;
                         win.resizeGrabbed = false;
                         win.rotateGrabbed = false;
-                        win.commitAction({ type: "clear" });
-                        drawCanvas._clearPending = true;
+                        win.actionHistory = [];
+                        win.historyStep = -1;
+                        drawCanvas._replayPending = true;
                         drawCanvas.requestPaint();
                         previewCanvas.requestPaint();
                     }
