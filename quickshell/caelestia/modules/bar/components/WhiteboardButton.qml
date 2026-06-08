@@ -30,8 +30,7 @@ Item {
 
         text: "draw"
         color: Colours.palette.m3primary
-        font.bold: true
-        font.pointSize: Tokens.font.size.normal
+        fontStyle: Tokens.font.icon.builders.small.weight(Font.Bold).build()
     }
 
     Process {
