@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -25,8 +26,13 @@ PanelWindow {
     // Position next to the left bar using anchors & margins
     anchors.left: true
     anchors.top: true
-    margins.left: 80
-    margins.top: screen ? Math.max(16, Math.min(WhiteboardService.targetY - implicitHeight / 2, screen.height - implicitHeight - 16)) : 0
+    anchors.right: win.isFullScreen
+    anchors.bottom: win.isFullScreen
+
+    margins.left: win.isFullScreen ? 0 : 80
+    margins.top: win.isFullScreen ? 0 : (screen ? Math.max(16, Math.min(WhiteboardService.targetY - implicitHeight / 2, screen.height - implicitHeight - 16)) : 0)
+    margins.right: 0
+    margins.bottom: 0
 
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -50,9 +56,117 @@ PanelWindow {
     // =========================================================
     // --- STATE & CONFIGURATION
     // =========================================================
-    property string currentTool: "pen" // "pen", "brush", "eraser"
-    property var toolKeys: ["pen", "brush", "eraser"]
+    property bool isFullScreen: false
+    property string currentTool: "pen" // "mouse", "pen", "brush", "eraser", "line", "rectangle", "circle", "text"
+    property var toolKeys: ["mouse", "pen", "brush", "eraser", "line", "rectangle", "circle", "text"]
     property int currentToolIndex: Math.max(0, toolKeys.indexOf(currentTool))
+
+    // Text editing and moving properties
+    property bool isHoveringText: false
+    property int hoveredTextIndex: -1
+    property int editingTextIndex: -1
+    property real lastHoverX: -1
+    property real lastHoverY: -1
+
+    // Hand tool moving properties
+    property int hoveredElementIndex: -1
+    property int grabbedElementIndex: -1
+    property real grabStartMouseX: 0
+    property real grabStartMouseY: 0
+    property real grabbedElementDx: 0
+    property real grabbedElementDy: 0
+
+    function updateHoverState(mx, my) {
+        if (win.currentTool === "text") {
+            for (var h = win.historyStep; h >= 0; h--) {
+                var action = win.actionHistory[h];
+                if (action && action.type === "text") {
+                    let estWidth = action.text.length * action.fontSize * 0.55;
+                    let estHeight = action.fontSize;
+                    let xStart = action.x - 12;
+                    let yStart = action.y - estHeight / 2;
+                    
+                    if (mx >= xStart - 6 && mx <= xStart + estWidth + 6 &&
+                        my >= yStart - 6 && my <= yStart + estHeight + 6) {
+                        win.hoveredTextIndex = h;
+                        win.isHoveringText = true;
+                        return;
+                    }
+                }
+            }
+            win.hoveredTextIndex = -1;
+            win.isHoveringText = false;
+        } else if (win.currentTool === "mouse") {
+            win.hoveredElementIndex = getElementAt(mx, my);
+        }
+    }
+
+    function getElementAt(mx, my) {
+        for (var h = win.historyStep; h >= 0; h--) {
+            var action = win.actionHistory[h];
+            if (!action) continue;
+
+            // Compute bounds on demand if they aren't pre-calculated
+            if (action.minX === undefined) {
+                if (action.type === "stroke") {
+                    calculateStrokeBounds(action);
+                } else if (action.type === "shape") {
+                    action.minX = Math.min(action.x1, action.x2);
+                    action.maxX = Math.max(action.x1, action.x2);
+                    action.minY = Math.min(action.y1, action.y2);
+                    action.maxY = Math.max(action.y1, action.y2);
+                } else if (action.type === "text") {
+                    let estWidth = action.text.length * action.fontSize * 0.55;
+                    let estHeight = action.fontSize;
+                    action.minX = action.x - 12;
+                    action.maxX = action.x - 12 + estWidth;
+                    action.minY = action.y - estHeight / 2;
+                    action.maxY = action.y + estHeight / 2;
+                }
+            }
+
+            // Bounding box check (with 15px tolerance)
+            if (action.minX !== undefined) {
+                if (mx < action.minX - 15 || mx > action.maxX + 15 ||
+                    my < action.minY - 15 || my > action.maxY + 15) {
+                    continue; // Skip detailed scan!
+                }
+            }
+
+            if (action.type === "text") {
+                return h;
+            }
+            
+            if (action.type === "shape") {
+                if (action.shapeType === "line") {
+                    if (distToSegment(mx, my, action.x1, action.y1, action.x2, action.y2) < 15) {
+                        return h;
+                    }
+                } else {
+                    return h;
+                }
+            }
+            
+            if (action.type === "stroke") {
+                let step = Math.max(1, Math.floor(action.segments.length / 50));
+                for (var s = 0; s < action.segments.length; s += step) {
+                    let seg = action.segments[s];
+                    if (distToSegment(mx, my, seg.x1, seg.y1, seg.x2, seg.y2) < 15) {
+                        return h;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    function distToSegment(px, py, x1, y1, x2, y2) {
+        let l2 = Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2);
+        if (l2 === 0) return Math.sqrt(Math.pow(px - x1, 2) + Math.pow(py - y1, 2));
+        let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.sqrt(Math.pow(px - (x1 + t * (x2 - x1)), 2) + Math.pow(py - (y1 + t * (y2 - y1)), 2));
+    }
 
     // UI Toggle States
     property bool showSizeConfig: false
@@ -91,7 +205,7 @@ PanelWindow {
     // Zoom limits and World Size
     property real minZoom: 0.1
     property real maxZoom: 5.0
-    property real worldSize: 2048 
+    property real worldSize: 3072 
 
     // =========================================================
     // --- HISTORY SYSTEM (UNDO / REDO)
@@ -101,7 +215,42 @@ PanelWindow {
     property int maxHistory: 50
     property var currentAction: null
 
+    function calculateStrokeBounds(action) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (var s = 0; s < action.segments.length; s++) {
+            let seg = action.segments[s];
+            if (seg.x1 < minX) minX = seg.x1;
+            if (seg.x2 < minX) minX = seg.x2;
+            if (seg.x1 > maxX) maxX = seg.x1;
+            if (seg.x2 > maxX) maxX = seg.x2;
+            if (seg.y1 < minY) minY = seg.y1;
+            if (seg.y2 < minY) minY = seg.y2;
+            if (seg.y1 > maxY) maxY = seg.y1;
+            if (seg.y2 > maxY) maxY = seg.y2;
+        }
+        action.minX = minX;
+        action.maxX = maxX;
+        action.minY = minY;
+        action.maxY = maxY;
+    }
+
     function commitAction(action) {
+        if (action.type === "stroke") {
+            calculateStrokeBounds(action);
+        } else if (action.type === "shape") {
+            action.minX = Math.min(action.x1, action.x2);
+            action.maxX = Math.max(action.x1, action.x2);
+            action.minY = Math.min(action.y1, action.y2);
+            action.maxY = Math.max(action.y1, action.y2);
+        } else if (action.type === "text") {
+            let estWidth = action.text.length * action.fontSize * 0.55;
+            let estHeight = action.fontSize;
+            action.minX = action.x - 12;
+            action.maxX = action.x - 12 + estWidth;
+            action.minY = action.y - estHeight / 2;
+            action.maxY = action.y + estHeight / 2;
+        }
+
         var newHistory = win.actionHistory.slice(0, win.historyStep + 1);
         newHistory.push(action);
         
@@ -132,9 +281,10 @@ PanelWindow {
         drawCanvas.requestPaint();
     }
 
-    // Shortcuts for Undo/Redo
+    // Shortcuts for Undo/Redo / Fullscreen
     Shortcut { enabled: win.visible; sequence: "Ctrl+Z"; onActivated: win.undo() }
     Shortcut { enabled: win.visible; sequence: "Ctrl+Shift+Z"; onActivated: win.redo() }
+    Shortcut { enabled: win.visible; sequence: "F11"; onActivated: win.isFullScreen = !win.isFullScreen }
 
     // IPC Handler to toggle visibility from bash / bar
     IpcHandler {
@@ -170,8 +320,8 @@ PanelWindow {
     Rectangle {
         anchors.fill: parent
         color: win.solidBgColor
-        radius: Tokens.rounding.large
-        border.width: 1
+        radius: win.isFullScreen ? 0 : Tokens.rounding.large
+        border.width: win.isFullScreen ? 0 : 1
         border.color: win.panelBorderColor
         clip: true
 
@@ -222,8 +372,232 @@ PanelWindow {
 
                 DragHandler {
                     target: zoomContainer
-                    enabled: win.currentTool === "mouse"
+                    enabled: win.currentTool === "mouse" && win.grabbedElementIndex === -1
                     acceptedButtons: Qt.LeftButton
+                }
+
+                // =========================================================
+                // --- SHAPE PREVIEW LAYER ---
+                // =========================================================
+                Item {
+                    id: shapePreview
+                    anchors.fill: parent
+                    z: 2
+                    visible: true
+                    enabled: false
+                    
+                    property string shapeType: ""
+                    property real startX: 0
+                    property real startY: 0
+                    property real curX: 0
+                    property real curY: 0
+
+                    Canvas {
+                        id: previewCanvas
+                        anchors.fill: parent
+                        renderTarget: Canvas.FramebufferObject
+                        
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.clearRect(0, 0, width, height);
+                            if (shapePreview.shapeType === "" && win.grabbedElementIndex === -1) return;
+                            
+                            // 1. Draw shape preview
+                            if (shapePreview.shapeType !== "") {
+                                ctx.strokeStyle = win.currentColor;
+                                ctx.lineWidth = win.actualToolSize;
+                                ctx.lineCap = "round";
+                                ctx.lineJoin = "round";
+                                ctx.beginPath();
+                                
+                                let x1 = shapePreview.startX;
+                                let y1 = shapePreview.startY;
+                                let x2 = shapePreview.curX;
+                                let y2 = shapePreview.curY;
+                                
+                                if (shapePreview.shapeType === "rectangle") {
+                                    let rx = Math.min(x1, x2);
+                                    let ry = Math.min(y1, y2);
+                                    let rw = Math.abs(x2 - x1);
+                                    let rh = Math.abs(y2 - y1);
+                                    ctx.rect(rx, ry, rw, rh);
+                                    ctx.stroke();
+                                } else if (shapePreview.shapeType === "circle") {
+                                    let rx = Math.min(x1, x2);
+                                    let ry = Math.min(y1, y2);
+                                    let rw = Math.abs(x2 - x1);
+                                    let rh = Math.abs(y2 - y1);
+                                    ctx.ellipse(rx, ry, rw, rh);
+                                    ctx.stroke();
+                                } else if (shapePreview.shapeType === "line") {
+                                    ctx.moveTo(x1, y1);
+                                    ctx.lineTo(x2, y2);
+                                    ctx.stroke();
+                                }
+                            }
+                            
+                            // 2. Draw grabbed element with offset
+                            if (win.grabbedElementIndex !== -1) {
+                                let action = win.actionHistory[win.grabbedElementIndex];
+                                if (action) {
+                                    ctx.save();
+                                    ctx.translate(win.grabbedElementDx, win.grabbedElementDy);
+                                    
+                                    if (action.type === "text") {
+                                        ctx.globalCompositeOperation = "source-over";
+                                        ctx.fillStyle = action.color;
+                                        ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
+                                        ctx.textBaseline = "middle";
+                                        ctx.fillText(action.text, action.x, action.y);
+                                    } else if (action.type === "shape") {
+                                        ctx.beginPath();
+                                        ctx.lineCap = "round";
+                                        ctx.lineJoin = "round";
+                                        ctx.globalCompositeOperation = "source-over";
+                                        ctx.strokeStyle = action.color;
+                                        ctx.lineWidth = action.penSize;
+                                        ctx.globalAlpha = 1.0;
+                                        
+                                        if (action.shapeType === "rectangle") {
+                                            let rx = Math.min(action.x1, action.x2);
+                                            let ry = Math.min(action.y1, action.y2);
+                                            let rw = Math.abs(action.x2 - action.x1);
+                                            let rh = Math.abs(action.y2 - action.y1);
+                                            ctx.rect(rx, ry, rw, rh);
+                                            ctx.stroke();
+                                        } else if (action.shapeType === "circle") {
+                                            let rx = Math.min(action.x1, action.x2);
+                                            let ry = Math.min(action.y1, action.y2);
+                                            let rw = Math.abs(action.x2 - action.x1);
+                                            let rh = Math.abs(action.y2 - action.y1);
+                                            ctx.ellipse(rx, ry, rw, rh);
+                                            ctx.stroke();
+                                        } else if (action.shapeType === "line") {
+                                            ctx.moveTo(action.x1, action.y1);
+                                            ctx.lineTo(action.x2, action.y2);
+                                            ctx.stroke();
+                                        }
+                                    } else if (action.type === "stroke") {
+                                        if (action.tool === "brush") {
+                                            drawCanvas.renderBrushLine(ctx, action, false);
+                                        } else {
+                                            ctx.beginPath();
+                                            ctx.lineCap = "round";
+                                            ctx.lineJoin = "round";
+                                            ctx.globalCompositeOperation = "source-over";
+                                            ctx.strokeStyle = action.color;
+                                            ctx.lineWidth = action.penSize;
+                                            ctx.globalAlpha = 1.0;
+                                            
+                                            if (action.segments && action.segments.length > 0) {
+                                                ctx.moveTo(action.segments[0].x1, action.segments[0].y1);
+                                                for (var k = 0; k < action.segments.length; k++) {
+                                                    ctx.lineTo(action.segments[k].x2, action.segments[k].y2);
+                                                }
+                                                ctx.stroke();
+                                            }
+                                        }
+                                    }
+                                    ctx.restore();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =========================================================
+                // --- TEXT EDITOR INTERFACE ---
+                // =========================================================
+                TextField {
+                    id: activeTextEditor
+                    z: 3
+                    visible: false
+                    
+                    color: win.currentColor
+                    font.pixelSize: Math.max(12, 16 + win.currentSizeRatio * 48)
+                    font.bold: true
+                    font.family: "Inter, sans-serif"
+                    
+                    verticalAlignment: TextInput.AlignVCenter
+                    leftPadding: 12
+                    rightPadding: 12
+                    
+                    width: Math.max(150, textMetrics.width + 32)
+                    height: font.pixelSize * 1.4 + 16
+                    
+                    background: Rectangle {
+                        color: Qt.rgba(0, 0, 0, 0.2)
+                        border.color: win.currentColor
+                        border.width: 2
+                        radius: Tokens.rounding.small
+                    }
+                    
+                    TextMetrics {
+                        id: textMetrics
+                        font: activeTextEditor.font
+                        text: activeTextEditor.text
+                    }
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            forceActiveFocus();
+                        }
+                    }
+
+                    Keys.onEscapePressed: {
+                        cancelEdit();
+                    }
+
+                    onActiveFocusChanged: {
+                        if (!activeFocus && visible) {
+                            commitText();
+                        }
+                    }
+
+                    onAccepted: {
+                        commitText();
+                    }
+
+                    function cancelEdit() {
+                        win.editingTextIndex = -1;
+                        text = "";
+                        visible = false;
+                        win.triggerReplay();
+                    }
+
+                    function commitText() {
+                        if (text.trim().length > 0) {
+                            if (win.editingTextIndex !== -1) {
+                                let action = win.actionHistory[win.editingTextIndex];
+                                action.text = text;
+                                action.color = win.currentColor.toString();
+                                action.fontSize = font.pixelSize;
+                                win.editingTextIndex = -1;
+                            } else {
+                                let action = {
+                                    type: "text",
+                                    x: x + 12,
+                                    y: y + height / 2,
+                                    text: text,
+                                    color: win.currentColor.toString(),
+                                    fontSize: font.pixelSize
+                                };
+                                win.commitAction(action);
+                            }
+                            win.triggerReplay();
+                        } else {
+                            if (win.editingTextIndex !== -1) {
+                                let newHistory = win.actionHistory.slice();
+                                newHistory.splice(win.editingTextIndex, 1);
+                                win.actionHistory = newHistory;
+                                win.historyStep--;
+                                win.editingTextIndex = -1;
+                                win.triggerReplay();
+                            }
+                        }
+                        text = "";
+                        visible = false;
+                    }
                 }
 
                 // --- HIGH-PERFORMANCE SYNCHRONOUS CANVAS ---
@@ -315,6 +689,7 @@ PanelWindow {
                                     ctx.fillRect(0, 0, width, height);
                                     ctx.globalCompositeOperation = "source-over";
                                 } else if (action.type === "stroke") {
+                                    if (h === win.grabbedElementIndex) continue;
                                     if (action.tool === "brush") {
                                         renderBrushLine(ctx, action, false);
                                     } else {
@@ -329,6 +704,36 @@ PanelWindow {
                                             ctx.stroke();
                                         }
                                     }
+                                } else if (action.type === "shape") {
+                                    if (h === win.grabbedElementIndex) continue;
+                                    ctx.beginPath();
+                                    applyToolStyle(ctx, "pen", action.color, action.penSize);
+                                    if (action.shapeType === "rectangle") {
+                                        let rx = Math.min(action.x1, action.x2);
+                                        let ry = Math.min(action.y1, action.y2);
+                                        let rw = Math.abs(action.x2 - action.x1);
+                                        let rh = Math.abs(action.y2 - action.y1);
+                                        ctx.rect(rx, ry, rw, rh);
+                                        ctx.stroke();
+                                    } else if (action.shapeType === "circle") {
+                                        let rx = Math.min(action.x1, action.x2);
+                                        let ry = Math.min(action.y1, action.y2);
+                                        let rw = Math.abs(action.x2 - action.x1);
+                                        let rh = Math.abs(action.y2 - action.y1);
+                                        ctx.ellipse(rx, ry, rw, rh);
+                                        ctx.stroke();
+                                    } else if (action.shapeType === "line") {
+                                        ctx.moveTo(action.x1, action.y1);
+                                        ctx.lineTo(action.x2, action.y2);
+                                        ctx.stroke();
+                                    }
+                                } else if (action.type === "text") {
+                                    if (h === win.editingTextIndex || h === win.grabbedElementIndex) continue;
+                                    ctx.globalCompositeOperation = "source-over";
+                                    ctx.fillStyle = action.color;
+                                    ctx.font = "bold " + action.fontSize + "px Inter, system-ui, sans-serif";
+                                    ctx.textBaseline = "middle";
+                                    ctx.fillText(action.text, action.x, action.y);
                                 }
                             }
                             _replayPending = false;
@@ -365,8 +770,21 @@ PanelWindow {
 
                     MouseArea {
                         anchors.fill: parent
-                        acceptedButtons: win.currentTool === "mouse" ? Qt.NoButton : Qt.LeftButton
+                        acceptedButtons: Qt.LeftButton
+                        hoverEnabled: win.currentTool === "text" || win.currentTool === "mouse"
+                        propagateComposedEvents: true
                         
+                        cursorShape: {
+                            if (win.currentTool === "text") {
+                                return win.isHoveringText ? Qt.IBeamCursor : Qt.CrossCursor;
+                            }
+                            if (win.currentTool === "mouse") {
+                                if (win.grabbedElementIndex !== -1) return Qt.ClosedHandCursor;
+                                return win.hoveredElementIndex !== -1 ? Qt.OpenHandCursor : Qt.ArrowCursor;
+                            }
+                            return Qt.CrossCursor;
+                        }
+
                         onWheel: (wheel) => {
                             let deltaY = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y : (wheel.pixelDelta ? wheel.pixelDelta.y : 0);
                             let deltaX = wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : (wheel.pixelDelta ? wheel.pixelDelta.x : 0);
@@ -386,6 +804,22 @@ PanelWindow {
                             win.showSizeConfig = false;
                             win.showColorPicker = false;
 
+                            if (win.currentTool === "mouse") {
+                                if (win.hoveredElementIndex !== -1) {
+                                    win.grabbedElementIndex = win.hoveredElementIndex;
+                                    win.grabStartMouseX = mouse.x;
+                                    win.grabStartMouseY = mouse.y;
+                                    win.grabbedElementDx = 0;
+                                    win.grabbedElementDy = 0;
+                                    mouse.accepted = true;
+                                    win.triggerReplay();
+                                    previewCanvas.requestPaint();
+                                } else {
+                                    mouse.accepted = false; // let DragHandler pan the board
+                                }
+                                return;
+                            }
+
                             if (win.currentTool === "fill") {
                                 let freezeCol = win.currentColor.toString();
                                 win.commitAction({ type: "fill_bg", color: freezeCol });
@@ -393,6 +827,43 @@ PanelWindow {
                                 
                                 drawCanvas.markDirty(Qt.rect(0, 0, drawCanvas.width, drawCanvas.height)); 
                                 drawCanvas.requestPaint();
+                                return;
+                            }
+
+                            if (win.currentTool === "text") {
+                                if (activeTextEditor.visible) {
+                                    activeTextEditor.commitText();
+                                    return;
+                                }
+                                
+                                if (win.isHoveringText && win.hoveredTextIndex !== -1) {
+                                    let action = win.actionHistory[win.hoveredTextIndex];
+                                    win.editingTextIndex = win.hoveredTextIndex;
+                                    
+                                    activeTextEditor.text = action.text;
+                                    activeTextEditor.x = action.x - 12;
+                                    activeTextEditor.y = action.y - activeTextEditor.height / 2;
+                                    
+                                    win.currentColor = action.color;
+                                    win.penSizeRatio = Math.max(0.0, Math.min(1.0, (action.fontSize - 16) / 48));
+                                    
+                                    activeTextEditor.visible = true;
+                                    win.triggerReplay();
+                                } else {
+                                    win.editingTextIndex = -1;
+                                    activeTextEditor.x = mouse.x;
+                                    activeTextEditor.y = mouse.y - activeTextEditor.height / 2;
+                                    activeTextEditor.visible = true;
+                                }
+                                return;
+                            }
+
+                            if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle") {
+                                shapePreview.startX = mouse.x;
+                                shapePreview.startY = mouse.y;
+                                shapePreview.curX = mouse.x;
+                                shapePreview.curY = mouse.y;
+                                shapePreview.shapeType = win.currentTool;
                                 return;
                             }
 
@@ -424,40 +895,131 @@ PanelWindow {
                         }
 
                         onPositionChanged: (mouse) => {
-                            if (pressed && win.currentTool !== "fill" && win.currentTool !== "mouse") {
-                                var segment = {
-                                    x1: drawCanvas.lastX, y1: drawCanvas.lastY,
-                                    x2: mouse.x, y2: mouse.y
-                                };
-                                
-                                if (win.currentAction) {
-                                    win.currentAction.segments.push(segment);
+                            if (pressed) {
+                                if (win.currentTool === "mouse" && win.grabbedElementIndex !== -1) {
+                                    win.grabbedElementDx = mouse.x - win.grabStartMouseX;
+                                    win.grabbedElementDy = mouse.y - win.grabStartMouseY;
+                                    previewCanvas.requestPaint();
+                                    return;
                                 }
 
-                                drawCanvas._queue.push({
-                                    type: "stroke",
-                                    tool: win.currentTool,
-                                    color: win.currentColor.toString(),
-                                    penSize: win.actualToolSize,
-                                    x1: segment.x1, y1: segment.y1, 
-                                    x2: segment.x2, y2: segment.y2
-                                });
-                                
-                                var rad = 20;
-                                var minX = Math.min(drawCanvas.lastX, mouse.x) - rad;
-                                var minY = Math.min(drawCanvas.lastY, mouse.y) - rad;
-                                var w = Math.abs(mouse.x - drawCanvas.lastX) + rad*2;
-                                var h = Math.abs(mouse.y - drawCanvas.lastY) + rad*2;
-                                
-                                drawCanvas.lastX = mouse.x;
-                                drawCanvas.lastY = mouse.y;
-                                
-                                drawCanvas.markDirty(Qt.rect(minX, minY, w, h));
-                                drawCanvas.requestPaint();
+                                if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle") {
+                                    shapePreview.curX = mouse.x;
+                                    shapePreview.curY = mouse.y;
+                                    previewCanvas.requestPaint();
+                                    return;
+                                }
+
+                                if (win.currentTool !== "fill" && win.currentTool !== "mouse" && win.currentTool !== "text" && win.currentAction) {
+                                    var segment = {
+                                        x1: drawCanvas.lastX, y1: drawCanvas.lastY,
+                                        x2: mouse.x, y2: mouse.y
+                                    };
+                                    
+                                    win.currentAction.segments.push(segment);
+
+                                    drawCanvas._queue.push({
+                                        type: "stroke",
+                                        tool: win.currentTool,
+                                        color: win.currentColor.toString(),
+                                        penSize: win.actualToolSize,
+                                        x1: segment.x1, y1: segment.y1, 
+                                        x2: segment.x2, y2: segment.y2
+                                    });
+                                    
+                                    var rad = 20;
+                                    var minX = Math.min(drawCanvas.lastX, mouse.x) - rad;
+                                    var minY = Math.min(drawCanvas.lastY, mouse.y) - rad;
+                                    var w = Math.abs(mouse.x - drawCanvas.lastX) + rad*2;
+                                    var h = Math.abs(mouse.y - drawCanvas.lastY) + rad*2;
+                                    
+                                    drawCanvas.lastX = mouse.x;
+                                    drawCanvas.lastY = mouse.y;
+                                    
+                                    drawCanvas.markDirty(Qt.rect(minX, minY, w, h));
+                                    drawCanvas.requestPaint();
+                                }
+                            } else {
+                                let dist = Math.sqrt(Math.pow(mouse.x - win.lastHoverX, 2) + Math.pow(mouse.y - win.lastHoverY, 2));
+                                if (dist > 6) {
+                                    win.lastHoverX = mouse.x;
+                                    win.lastHoverY = mouse.y;
+                                    win.updateHoverState(mouse.x, mouse.y);
+                                }
                             }
                         }
 
+                        onExited: {
+                            win.isHoveringText = false;
+                            win.hoveredTextIndex = -1;
+                            win.hoveredElementIndex = -1;
+                            win.lastHoverX = -1;
+                            win.lastHoverY = -1;
+                        }
+
                         onReleased: (mouse) => {
+                            if (win.currentTool === "mouse") {
+                                if (win.grabbedElementIndex !== -1) {
+                                    let dx = win.grabbedElementDx;
+                                    let dy = win.grabbedElementDy;
+                                    let action = win.actionHistory[win.grabbedElementIndex];
+                                    if (action) {
+                                        if (action.type === "text" || action.type === "shape") {
+                                            action.x1 += dx;
+                                            action.y1 += dy;
+                                            action.x2 += dx;
+                                            action.y2 += dy;
+                                            if (action.type === "text") {
+                                                action.x += dx;
+                                                action.y += dy;
+                                            }
+                                        } else if (action.type === "stroke") {
+                                            for (var s = 0; s < action.segments.length; s++) {
+                                                action.segments[s].x1 += dx;
+                                                action.segments[s].y1 += dy;
+                                                action.segments[s].x2 += dx;
+                                                action.segments[s].y2 += dy;
+                                            }
+                                        }
+                                        
+                                        if (action.minX !== undefined) {
+                                            action.minX += dx;
+                                            action.maxX += dx;
+                                            action.minY += dy;
+                                            action.maxY += dy;
+                                        }
+                                    }
+                                    win.grabbedElementIndex = -1;
+                                    win.grabbedElementDx = 0;
+                                    win.grabbedElementDy = 0;
+                                    win.triggerReplay();
+                                    previewCanvas.requestPaint();
+                                }
+                                return;
+                            }
+
+                            if (win.currentTool === "line" || win.currentTool === "rectangle" || win.currentTool === "circle") {
+                                let shapeTypeSaved = shapePreview.shapeType;
+                                shapePreview.shapeType = "";
+                                previewCanvas.requestPaint();
+                                let dist = Math.sqrt(Math.pow(mouse.x - shapePreview.startX, 2) + Math.pow(mouse.y - shapePreview.startY, 2));
+                                if (dist > 2) {
+                                    let action = {
+                                        type: "shape",
+                                        shapeType: shapeTypeSaved || win.currentTool,
+                                        x1: shapePreview.startX,
+                                        y1: shapePreview.startY,
+                                        x2: mouse.x,
+                                        y2: mouse.y,
+                                        color: win.currentColor.toString(),
+                                        penSize: win.actualToolSize
+                                    };
+                                    win.commitAction(action);
+                                    win.triggerReplay();
+                                }
+                                return;
+                            }
+
                             if (win.currentAction) {
                                 win.commitAction(win.currentAction);
                                 win.currentAction = null;
@@ -651,6 +1213,36 @@ PanelWindow {
                 }
             }
 
+            // --- FULLSCREEN BUTTON ---
+            Rectangle {
+                width: 38; height: 38
+                radius: Tokens.rounding.medium
+                color: win.panelBgColor
+                border.width: 1
+                border.color: win.panelBorderColor
+                
+                Rectangle {
+                    anchors.centerIn: parent; width: 28; height: 28; radius: Tokens.rounding.small; z:-1
+                    color: fullscreenMouse.containsMouse ? Colours.palette.m3surfaceVariant : "transparent"
+                }
+
+                MaterialIcon {
+                    anchors.centerIn: parent
+                    text: win.isFullScreen ? "fullscreen_exit" : "fullscreen"
+                    color: win.baseTextColor
+                }
+
+                MouseArea {
+                    id: fullscreenMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        win.isFullScreen = !win.isFullScreen;
+                    }
+                }
+            }
+
             // --- CLEAR BUTTON ---
             Rectangle {
                 width: 38; height: 38
@@ -728,6 +1320,30 @@ PanelWindow {
                 ToolButton {
                     iconName: "ink_eraser"
                     toolKey: "eraser"
+                }
+
+                // --- TOOL: LINE ---
+                ToolButton {
+                    iconName: "horizontal_rule"
+                    toolKey: "line"
+                }
+
+                // --- TOOL: RECTANGLE ---
+                ToolButton {
+                    iconName: "crop_square"
+                    toolKey: "rectangle"
+                }
+
+                // --- TOOL: CIRCLE ---
+                ToolButton {
+                    iconName: "circle"
+                    toolKey: "circle"
+                }
+
+                // --- TOOL: TEXT ---
+                ToolButton {
+                    iconName: "title"
+                    toolKey: "text"
                 }
 
                 // --- ACTION: STROKE WIDTH SLIDER ---
