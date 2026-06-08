@@ -454,10 +454,10 @@ create_symlink() {
     
     if [ -d "$dest" ] && [ ! -L "$dest" ]; then
         log "Eliminando directorio de configuración existente en $dest..." >> "$LOG_FILE" 2>&1
-        rm -rf "$dest" >> "$LOG_FILE" 2>&1 || return 1
+        rm -rf "$dest" >> "$LOG_FILE" 2>&1 || sudo rm -rf "$dest" >> "$LOG_FILE" 2>&1 || return 1
     elif [ -e "$dest" ] || [ -L "$dest" ]; then
         log "Eliminando archivo o enlace existente en $dest..." >> "$LOG_FILE" 2>&1
-        rm -f "$dest" >> "$LOG_FILE" 2>&1 || return 1
+        rm -f "$dest" >> "$LOG_FILE" 2>&1 || sudo rm -f "$dest" >> "$LOG_FILE" 2>&1 || return 1
     fi
     
     mkdir -p "$(dirname "$dest")" >> "$LOG_FILE" 2>&1 || return 1
