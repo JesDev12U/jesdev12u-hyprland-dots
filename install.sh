@@ -741,7 +741,7 @@ step_9() {
             if grep -q "^GRUB_THEME=" /etc/default/grub; then
                 sudo sed -i 's|^GRUB_THEME=.*|GRUB_THEME="/boot/grub/themes/custom-theme/theme.txt"|' /etc/default/grub >> "$LOG_FILE" 2>&1
             else
-                echo 'GRUB_THEME="/boot/grub/themes/custom-theme/theme.txt"' | sudo /usr/bin/tee -a /etc/default/grub >> "$LOG_FILE" 2>&1
+                sudo bash -c 'echo "GRUB_THEME=\"/boot/grub/themes/custom-theme/theme.txt\"" >> /etc/default/grub' >> "$LOG_FILE" 2>&1
             fi
             log "Regenerando configuración de GRUB (grub-mkconfig)..." >> "$LOG_FILE" 2>&1
             sudo grub-mkconfig -o /boot/grub/grub.cfg >> "$LOG_FILE" 2>&1 || true
