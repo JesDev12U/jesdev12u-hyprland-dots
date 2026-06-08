@@ -43,7 +43,9 @@ PanelWindow {
     implicitHeight: 450
 
     onVisibleChanged: {
-        if (!visible) {
+        if (visible) {
+            rootRectangle.forceActiveFocus();
+        } else {
             showSizeConfig = false;
             showColorPicker = false;
         }
@@ -105,6 +107,64 @@ PanelWindow {
     property string activeTextFontFamily: "sans-serif" // "sans-serif", "serif", "monospace", "cursive"
     property bool activeTextIsBold: true
     property bool activeTextIsItalic: false
+
+    // Clipboard for copy-pasting elements
+    property var copiedElement: null
+
+    function copySelectedElement() {
+        if (win.selectedElementIndex !== -1) {
+            let action = win.actionHistory[win.selectedElementIndex];
+            if (action) {
+                win.copiedElement = cloneAction(action);
+                Toaster.toast("Pizarra", "Dibujo copiado", "content_copy", Toast.Success);
+            }
+        }
+    }
+
+    function pasteCopiedElement() {
+        if (win.copiedElement) {
+            let pasted = cloneAction(win.copiedElement);
+            
+            // Offset coordinates by 24px in world space
+            let offset = 24;
+            
+            if (pasted.type === "stroke") {
+                for (var s = 0; s < pasted.segments.length; s++) {
+                    pasted.segments[s].x1 += offset;
+                    pasted.segments[s].y1 += offset;
+                    pasted.segments[s].x2 += offset;
+                    pasted.segments[s].y2 += offset;
+                }
+            } else if (pasted.type === "shape") {
+                pasted.x1 += offset;
+                pasted.y1 += offset;
+                pasted.x2 += offset;
+                pasted.y2 += offset;
+            } else if (pasted.type === "text") {
+                pasted.x += offset;
+                pasted.y += offset;
+            }
+            
+            if (pasted.minX !== undefined) {
+                pasted.minX += offset;
+                pasted.maxX += offset;
+                pasted.minY += offset;
+                pasted.maxY += offset;
+            }
+            
+            win.commitAction(pasted);
+            
+            // Successive paste shifts again from the newly pasted element
+            win.copiedElement = pasted;
+            
+            // Select the newly pasted element
+            win.selectedElementIndex = win.historyStep;
+            
+            win.triggerReplay();
+            previewCanvas.requestPaint();
+            Toaster.toast("Pizarra", "Dibujo pegado", "content_paste", Toast.Success);
+        }
+    }
 
     function getTextEstWidth(text, fontSize, fontFamily) {
         let factor = 0.55;
@@ -459,6 +519,16 @@ PanelWindow {
     Shortcut { enabled: win.visible; sequence: "Ctrl+Z"; onActivated: win.undo() }
     Shortcut { enabled: win.visible; sequence: "Ctrl+Shift+Z"; onActivated: win.redo() }
     Shortcut { enabled: win.visible; sequence: "F11"; onActivated: win.isFullScreen = !win.isFullScreen }
+    Shortcut {
+        enabled: win.visible && win.currentTool === "mouse" && !activeTextEditor.visible
+        sequence: "Ctrl+C"
+        onActivated: win.copySelectedElement()
+    }
+    Shortcut {
+        enabled: win.visible && win.currentTool === "mouse" && !activeTextEditor.visible
+        sequence: "Ctrl+V"
+        onActivated: win.pasteCopiedElement()
+    }
 
     // IPC Handler to toggle visibility from bash / bar
     IpcHandler {
@@ -492,6 +562,7 @@ PanelWindow {
 
     // Main window background and border styling
     Rectangle {
+        id: rootRectangle
         anchors.fill: parent
         color: win.solidBgColor
         radius: win.isFullScreen ? 0 : Tokens.rounding.large
@@ -1391,6 +1462,7 @@ PanelWindow {
                         }
 
                         onPressed: (mouse) => {
+                            rootRectangle.forceActiveFocus();
                             win.showSizeConfig = false;
                             win.showColorPicker = false;
 
