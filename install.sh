@@ -431,7 +431,10 @@ step_1() {
         cd "$tmp_dir"
         git clone https://aur.archlinux.org/paru-bin.git >> "$LOG_FILE" 2>&1
         cd paru-bin
-        makepkg -si --noconfirm >> "$LOG_FILE" 2>&1
+        # Construir el paquete sin instalarlo (no requiere privilegios de root/sudo)
+        makepkg --noconfirm >> "$LOG_FILE" 2>&1
+        # Instalar el archivo compilado resultante usando sudo de forma directa en el script
+        sudo pacman -U --noconfirm paru-bin-*.pkg.tar.zst >> "$LOG_FILE" 2>&1
         cd "$CURRENT_DIR"
         rm -rf "$tmp_dir" >> "$LOG_FILE" 2>&1
         AUR_HELPER="paru"
