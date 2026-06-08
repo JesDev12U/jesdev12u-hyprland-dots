@@ -678,6 +678,15 @@ step_5() {
 
 step_6() {
     log "Instalando archivos de configuración personalizada..." >> "$LOG_FILE" 2>&1
+    
+    # Reemplazar ruta hardcodeada del desarrollador por la del usuario real en los archivos de configuración
+    if [ -f "$INSTALL_DIR/caelestia/cli.json" ]; then
+        sed -i "s|/home/jesdev12u|$HOME|g" "$INSTALL_DIR/caelestia/cli.json" >> "$LOG_FILE" 2>&1 || true
+    fi
+    if [ -f "$INSTALL_DIR/caelestia/shell.json" ]; then
+        sed -i "s|/home/jesdev12u|$HOME|g" "$INSTALL_DIR/caelestia/shell.json" >> "$LOG_FILE" 2>&1 || true
+    fi
+
     create_symlink "$INSTALL_DIR/hypr" "$CONFIG_DIR/hypr"
     create_symlink "$INSTALL_DIR/quickshell/caelestia" "$CONFIG_DIR/quickshell/caelestia"
     create_symlink "$INSTALL_DIR/starship.toml" "$CONFIG_DIR/starship.toml"

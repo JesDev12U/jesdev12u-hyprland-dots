@@ -36,7 +36,7 @@ export SDKMAN_DIR="$HOME/.sdkman"
 export ANDROID_NDK_ROOT=/opt/android-ndk
 
 # Created by `pipx` on 2026-03-20 06:45:20
-export PATH="$PATH:/home/jesdev12u/.local/bin"
+export PATH="$PATH:$HOME/.local/bin"
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # OpenClaw Completion
