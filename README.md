@@ -11,7 +11,7 @@ Este repositorio contiene una versión optimizada, limpia y libre de bloatware, 
 ### Interfaz y Escritorio (Hyprland & Quickshell)
 
 - **Código QML Personalizado**: Optimización en los paneles del shell de Caelestia, corrigiendo bugs de visualización nativos.
-- **Integración de Pizarra (Lorien)**: Botón de acceso rápido integrado en el control center para abrir la pizarra infinita vectorizada (`lorien`).
+- **Integración de Pizarra**: Botón de acceso rápido integrado en el control center para abrir la pizarra infinita nativa escrita en QML.
 - **Tema de Cursores Apple**: Configuración y descarga del elegante juego de cursores de macOS (`apple_cursor`).
 - **Soporte Tipográfico Universal**: Configuración nativa y tipografías CJK/UTF (`noto-fonts-cjk`, `wqy-zenhei`, `adobe-source-han-sans-cn-fonts`) para la visualización correcta de cualquier abecedario y caracteres especiales.
 

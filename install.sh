@@ -499,7 +499,6 @@ AUR_PACKAGES=(
     caelestia-cli
     caelestia-shell-git
     apple_cursor
-    lorien-bin
     ttf-iosevka-nerd
     visual-studio-code-bin
     sddm-silent-theme

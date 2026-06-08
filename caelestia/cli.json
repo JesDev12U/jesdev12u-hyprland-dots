@@ -1,17 +1,16 @@
 {
   "toggles": {
     "whiteboard": {
-      "lorien": {
+      "native": {
         "enable": true,
         "match": [
           {
-            "class": "Lorien"
+            "title": "Caelestia Whiteboard"
           }
         ],
         "command": [
           "/home/jesdev12u/.config/caelestia/toggle_whiteboard.sh"
-        ],
-        "move": true
+        ]
       }
     }
   }
