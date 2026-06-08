@@ -4,6 +4,7 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Caelestia
 import Caelestia.Config
 import qs.components
 import qs.services
@@ -638,9 +639,14 @@ PanelWindow {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         var tempPath = Paths.cache + "/whiteboard.png";
-                        drawCanvas.save(tempPath);
-                        Quickshell.execDetached(["sh", "-c", "wl-copy < " + tempPath]);
-                        Toaster.toast("Pizarra", "Copiado al portapapeles", "content_copy", Toast.Success);
+                        drawCanvas.grabToImage(function(result) {
+                            if (result.saveToFile(tempPath)) {
+                                Quickshell.execDetached(["sh", "-c", "wl-copy -t image/png < " + tempPath]);
+                                Toaster.toast("Pizarra", "Copiado al portapapeles", "content_copy", Toast.Success);
+                            } else {
+                                Toaster.toast("Pizarra", "Error al guardar el dibujo", "error", Toast.Error);
+                            }
+                        });
                     }
                 }
             }
