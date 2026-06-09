@@ -432,6 +432,43 @@ PanelWindow {
     property real pickVal: 0.97
     property color currentColor: Qt.hsva(pickHue, pickSat, pickVal, 1.0)
     
+    function selectColor(col) {
+        let c = Qt.color(col);
+        if (c.hsvHue >= 0) {
+            win.pickHue = c.hsvHue;
+        }
+        win.pickSat = c.hsvSaturation;
+        win.pickVal = c.hsvValue;
+    }
+
+    onSelectedElementIndexChanged: {
+        if (selectedElementIndex !== -1) {
+            let action = actionHistory[selectedElementIndex];
+            if (action && action.color !== undefined) {
+                let c = Qt.color(action.color);
+                if (c.hsvHue >= 0) {
+                    pickHue = c.hsvHue;
+                }
+                pickSat = c.hsvSaturation;
+                pickVal = c.hsvValue;
+            }
+        }
+    }
+
+    onCurrentColorChanged: {
+        if (win.selectedElementIndex !== -1) {
+            let action = win.actionHistory[win.selectedElementIndex];
+            if (action && action.color !== undefined) {
+                let colStr = win.currentColor.toString();
+                if (action.color !== colStr) {
+                    action.color = colStr;
+                    win.triggerReplay();
+                    previewCanvas.requestPaint();
+                }
+            }
+        }
+    }
+    
     // Tool Size Config State (Independent memory per tool)
     property real penSizeRatio: 0.3
     property real brushSizeRatio: 0.4
@@ -516,6 +553,21 @@ PanelWindow {
         win.historyStep = win.actionHistory.length - 1;
     }
 
+    function isPointOverUI(sceneX, sceneY) {
+        if (typeof colorPickerPopup !== "undefined" && colorPickerPopup.visible && isPointOverItem(colorPickerPopup, sceneX, sceneY)) return true;
+        if (typeof sizeConfigPopup !== "undefined" && sizeConfigPopup.visible && isPointOverItem(sizeConfigPopup, sceneX, sceneY)) return true;
+        if (typeof textStyleModal !== "undefined" && textStyleModal.visible && isPointOverItem(textStyleModal, sceneX, sceneY)) return true;
+        if (typeof toolbar !== "undefined" && toolbar.visible && isPointOverItem(toolbar, sceneX, sceneY)) return true;
+        if (typeof topActionsLayout !== "undefined" && topActionsLayout.visible && isPointOverItem(topActionsLayout, sceneX, sceneY)) return true;
+        return false;
+    }
+
+    function isPointOverItem(item, sceneX, sceneY) {
+        if (!item || !item.visible || item.opacity === 0) return false;
+        let localPt = item.mapFromItem(null, sceneX, sceneY);
+        return (localPt.x >= 0 && localPt.x <= item.width && localPt.y >= 0 && localPt.y <= item.height);
+    }
+
     function undo() {
         if (win.historyStep >= 0) {
             win.selectedElementIndex = -1;
@@ -597,8 +649,17 @@ PanelWindow {
         color: win.solidBgColor
         radius: win.isFullScreen ? 0 : Tokens.rounding.large
         border.width: win.isFullScreen ? 0 : 1
-        border.color: win.panelBorderColor
         clip: true
+        
+        PointHandler {
+            id: globalReleaseMonitor
+            target: null
+            onActiveChanged: {
+                if (!active) {
+                    canvasPanHandler.enabled = true;
+                }
+            }
+        }
 
         // =========================================================
         // --- CAMERA RIG (Handles viewport size, rotation, gestures)
@@ -653,9 +714,18 @@ PanelWindow {
                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
 
                 DragHandler {
+                    id: canvasPanHandler
                     target: zoomContainer
                     enabled: win.currentTool === "mouse" && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed
                     acceptedButtons: Qt.LeftButton
+                    onActiveChanged: {
+                        if (active) {
+                            let pressPt = centroid.scenePressPosition;
+                            if (win.isPointOverUI(pressPt.x, pressPt.y)) {
+                                canvasPanHandler.enabled = false;
+                            }
+                        }
+                    }
                 }
 
                 // =========================================================
@@ -1082,6 +1152,11 @@ PanelWindow {
                     id: textStyleModal
                     z: 20
                     parent: cameraRig
+                    
+                    MouseArea {
+                        anchors.fill: parent
+                        onPressed: (mouse) => { mouse.accepted = true; }
+                    }
                     
                     width: 204
                     height: 44
@@ -1594,7 +1669,7 @@ PanelWindow {
                                     activeTextEditor.x = action.x - 12;
                                     activeTextEditor.y = action.y - activeTextEditor.height / 2;
                                     
-                                    win.currentColor = action.color;
+                                    win.selectColor(action.color);
                                     win.penSizeRatio = Math.max(0.0, Math.min(1.0, (action.fontSize - 16) / 48));
                                     
                                     win.activeTextFontFamily = action.fontFamily || "sans-serif";
@@ -2151,6 +2226,11 @@ PanelWindow {
             anchors.bottomMargin: Tokens.padding.medium
             z: 10
 
+            MouseArea {
+                anchors.fill: parent
+                onPressed: (mouse) => { mouse.accepted = true; }
+            }
+
             width: toolRow.width + Tokens.padding.medium
             height: 44
             radius: Tokens.rounding.large
@@ -2271,6 +2351,12 @@ PanelWindow {
         Rectangle {
             id: sizeConfigPopup
             z: 20
+            
+            MouseArea {
+                anchors.fill: parent
+                onPressed: (mouse) => { mouse.accepted = true; }
+            }
+            
             width: 240
             height: 54
             radius: Tokens.rounding.medium
@@ -2356,6 +2442,12 @@ PanelWindow {
         Rectangle {
             id: colorPickerPopup
             z: 20
+            
+            MouseArea {
+                anchors.fill: parent
+                onPressed: (mouse) => { mouse.accepted = true; }
+            }
+            
             width: 280
             height: 250
             radius: Tokens.rounding.medium
@@ -2482,7 +2574,7 @@ PanelWindow {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    win.currentColor = modelData;
+                                    win.selectColor(modelData);
                                 }
                             }
                         }
