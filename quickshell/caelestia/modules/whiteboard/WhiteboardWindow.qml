@@ -111,6 +111,7 @@ PanelWindow {
 
     // Clipboard for copy-pasting elements
     property var copiedElement: null
+    property bool isCursorOverUIOnPress: false
 
     function copySelectedElement() {
         if (win.selectedElementIndex !== -1) {
@@ -656,7 +657,7 @@ PanelWindow {
             target: null
             onActiveChanged: {
                 if (!active) {
-                    canvasPanHandler.enabled = true;
+                    win.isCursorOverUIOnPress = false;
                 }
             }
         }
@@ -716,13 +717,13 @@ PanelWindow {
                 DragHandler {
                     id: canvasPanHandler
                     target: zoomContainer
-                    enabled: win.currentTool === "mouse" && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed
+                    enabled: win.currentTool === "mouse" && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed && !win.isCursorOverUIOnPress
                     acceptedButtons: Qt.LeftButton
                     onActiveChanged: {
                         if (active) {
                             let pressPt = centroid.scenePressPosition;
                             if (win.isPointOverUI(pressPt.x, pressPt.y)) {
-                                canvasPanHandler.enabled = false;
+                                win.isCursorOverUIOnPress = true;
                             }
                         }
                     }
