@@ -80,7 +80,7 @@ PanelWindow {
     property real grabbedElementDy: 0
 
     onCurrentToolChanged: {
-        win.selectedElementIndex = -1;
+        win.selectedElementIndices = [];
         win.grabbedElementIndex = -1;
         win.resizeGrabbed = false;
         win.rotateGrabbed = false;
@@ -90,6 +90,12 @@ PanelWindow {
 
     // Selection and Resize properties
     property int selectedElementIndex: -1
+    property var selectedElementIndices: []
+    property real selectionMinX: 0
+    property real selectionMaxX: 0
+    property real selectionMinY: 0
+    property real selectionMaxY: 0
+    property real selectionRotation: 0
     property bool resizeGrabbed: false
     property string resizeHandle: "" // "TL", "TR", "BL", "BR"
     property real grabbedMinX: 0
@@ -97,6 +103,7 @@ PanelWindow {
     property real grabbedMinY: 0
     property real grabbedMaxY: 0
     property var actionBeforeResize: null
+    property var actionsBeforeResize: []
 
     // Rotation properties
     property bool rotateGrabbed: false
@@ -104,68 +111,196 @@ PanelWindow {
     property real grabbedElementInitialRotation: 0
     property real grabbedElementRotationDelta: 0
 
+    onSelectedElementIndicesChanged: {
+        if (selectedElementIndices.length > 0) {
+            win.selectedElementIndex = selectedElementIndices[selectedElementIndices.length - 1];
+        } else {
+            win.selectedElementIndex = -1;
+        }
+    }
+
     // Current text toolbar properties
     property string activeTextFontFamily: "sans-serif" // "sans-serif", "serif", "monospace", "cursive"
     property bool activeTextIsBold: true
     property bool activeTextIsItalic: false
 
     // Clipboard for copy-pasting elements
-    property var copiedElement: null
+    property var copiedElements: []
     property bool isCursorOverUIOnPress: false
 
     function copySelectedElement() {
-        if (win.selectedElementIndex !== -1) {
-            let action = win.actionHistory[win.selectedElementIndex];
-            if (action) {
-                win.copiedElement = cloneAction(action);
-                Toaster.toast("Pizarra", "Dibujo copiado", "content_copy", Toast.Success);
+        if (win.selectedElementIndices.length > 0) {
+            let list = [];
+            for (let idx of win.selectedElementIndices) {
+                let action = win.actionHistory[idx];
+                if (action) {
+                    list.push(cloneAction(action));
+                }
             }
+            win.copiedElements = list;
+            Toaster.toast("Pizarra", "Dibujo copiado", "content_copy", Toast.Success);
         }
     }
 
     function pasteCopiedElement() {
-        if (win.copiedElement) {
-            let pasted = cloneAction(win.copiedElement);
-            
-            // Offset coordinates by 24px in world space
+        if (win.copiedElements && win.copiedElements.length > 0) {
             let offset = 24;
+            let newIndices = [];
+            let newCopiedList = [];
             
-            if (pasted.type === "stroke") {
-                for (var s = 0; s < pasted.segments.length; s++) {
-                    pasted.segments[s].x1 += offset;
-                    pasted.segments[s].y1 += offset;
-                    pasted.segments[s].x2 += offset;
-                    pasted.segments[s].y2 += offset;
+            for (let i = 0; i < win.copiedElements.length; i++) {
+                let pasted = cloneAction(win.copiedElements[i]);
+                
+                if (pasted.type === "stroke") {
+                    for (var s = 0; s < pasted.segments.length; s++) {
+                        pasted.segments[s].x1 += offset;
+                        pasted.segments[s].y1 += offset;
+                        pasted.segments[s].x2 += offset;
+                        pasted.segments[s].y2 += offset;
+                    }
+                } else if (pasted.type === "shape") {
+                    pasted.x1 += offset;
+                    pasted.y1 += offset;
+                    pasted.x2 += offset;
+                    pasted.y2 += offset;
+                } else if (pasted.type === "text") {
+                    pasted.x += offset;
+                    pasted.y += offset;
                 }
-            } else if (pasted.type === "shape") {
-                pasted.x1 += offset;
-                pasted.y1 += offset;
-                pasted.x2 += offset;
-                pasted.y2 += offset;
-            } else if (pasted.type === "text") {
-                pasted.x += offset;
-                pasted.y += offset;
+                
+                if (pasted.minX !== undefined) {
+                    pasted.minX += offset;
+                    pasted.maxX += offset;
+                    pasted.minY += offset;
+                    pasted.maxY += offset;
+                }
+                
+                win.commitAction(pasted);
+                newIndices.push(win.historyStep);
+                newCopiedList.push(pasted);
             }
             
-            if (pasted.minX !== undefined) {
-                pasted.minX += offset;
-                pasted.maxX += offset;
-                pasted.minY += offset;
-                pasted.maxY += offset;
-            }
-            
-            win.commitAction(pasted);
-            
-            // Successive paste shifts again from the newly pasted element
-            win.copiedElement = pasted;
-            
-            // Select the newly pasted element
-            win.selectedElementIndex = win.historyStep;
+            win.copiedElements = newCopiedList;
+            win.selectedElementIndices = newIndices;
+            win.updateSelectionBounds();
             
             win.triggerReplay();
             previewCanvas.requestPaint();
             Toaster.toast("Pizarra", "Dibujo pegado", "content_paste", Toast.Success);
         }
+    }
+
+    function deleteSelectedElements() {
+        if (win.selectedElementIndices.length === 0) return;
+        
+        let sortedIndices = win.selectedElementIndices.slice().sort((a, b) => b - a);
+        let newHistory = win.actionHistory.slice(0, win.historyStep + 1);
+        for (let idx of sortedIndices) {
+            if (idx >= 0 && idx < newHistory.length) {
+                newHistory.splice(idx, 1);
+            }
+        }
+        
+        win.selectedElementIndices = [];
+        win.actionHistory = newHistory;
+        win.historyStep = win.actionHistory.length - 1;
+        win.updateSelectionBounds();
+        
+        win.triggerReplay();
+        previewCanvas.requestPaint();
+        Toaster.toast("Pizarra", "Elementos eliminados", "delete", Toast.Success);
+    }
+
+    function rotateAction(action, delta, cx, cy) {
+        if (!action) return;
+        
+        // 1. Calculate current center of the element's bounding box
+        let ecx = (action.minX + action.maxX) / 2;
+        let ecy = (action.minY + action.maxY) / 2;
+        
+        // 2. Rotate the element's center around the rotation center (cx, cy)
+        let p = rotatePoint(ecx, ecy, cx, cy, delta);
+        
+        // 3. Calculate translation offset
+        let dx = p.x - ecx;
+        let dy = p.y - ecy;
+        
+        // 4. Translate the element coordinates
+        if (action.type === "shape") {
+            action.x1 += dx;
+            action.y1 += dy;
+            action.x2 += dx;
+            action.y2 += dy;
+        } else if (action.type === "text") {
+            action.x += dx;
+            action.y += dy;
+        } else if (action.type === "stroke") {
+            for (var s = 0; s < action.segments.length; s++) {
+                let seg = action.segments[s];
+                seg.x1 += dx;
+                seg.y1 += dy;
+                seg.x2 += dx;
+                seg.y2 += dy;
+            }
+        }
+        
+        // 5. Update rotation
+        action.rotation = (action.rotation || 0) + delta;
+        
+        // 6. Translate the bounding box
+        action.minX += dx;
+        action.maxX += dx;
+        action.minY += dy;
+        action.maxY += dy;
+    }
+
+    function rotatePoint(px, py, cx, cy, angle) {
+        let cos = Math.cos(angle);
+        let sin = Math.sin(angle);
+        return {
+            x: cx + (px - cx) * cos - (py - cy) * sin,
+            y: cy + (px - cx) * sin + (py - cy) * cos
+        };
+    }
+
+    function updateSelectionBounds() {
+        if (win.selectedElementIndices.length === 0) {
+            win.selectionMinX = 0;
+            win.selectionMaxX = 0;
+            win.selectionMinY = 0;
+            win.selectionMaxY = 0;
+            return;
+        }
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let idx of win.selectedElementIndices) {
+            let action = win.actionHistory[idx];
+            if (action) {
+                if (action.minX === undefined) {
+                    if (action.type === "stroke") calculateStrokeBounds(action);
+                    else if (action.type === "shape") {
+                        action.minX = Math.min(action.x1, action.x2);
+                        action.maxX = Math.max(action.x1, action.x2);
+                        action.minY = Math.min(action.y1, action.y2);
+                        action.maxY = Math.max(action.y1, action.y2);
+                    } else if (action.type === "text") {
+                        let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
+                        let estHeight = action.fontSize;
+                        action.minX = action.x - 12;
+                        action.maxX = action.x - 12 + estWidth;
+                        action.minY = action.y - estHeight / 2;
+                        action.maxY = action.y + estHeight / 2;
+                    }
+                }
+                if (action.minX < minX) minX = action.minX;
+                if (action.maxX > maxX) maxX = action.maxX;
+                if (action.minY < minY) minY = action.minY;
+                if (action.maxY > maxY) maxY = action.maxY;
+            }
+        }
+        win.selectionMinX = minX;
+        win.selectionMaxX = maxX;
+        win.selectionMinY = minY;
+        win.selectionMaxY = maxY;
     }
 
     function getTextEstWidth(text, fontSize, fontFamily) {
@@ -287,20 +422,28 @@ PanelWindow {
     }
 
     function getHoveredHandle(mx, my) {
-        if (win.selectedElementIndex === -1) return "";
-        let action = win.actionHistory[win.selectedElementIndex];
-        if (!action) return "";
-        
-        let minX = action.minX;
-        let maxX = action.maxX;
-        let minY = action.minY;
-        let maxY = action.maxY;
+        if (win.selectedElementIndices.length === 0) return "";
+        let minX, maxX, minY, maxY, rot;
+        if (win.selectedElementIndices.length === 1) {
+            let action = win.actionHistory[win.selectedElementIndices[0]];
+            if (!action) return "";
+            minX = action.minX;
+            maxX = action.maxX;
+            minY = action.minY;
+            maxY = action.maxY;
+            rot = action.rotation || 0;
+        } else {
+            minX = win.selectionMinX;
+            maxX = win.selectionMaxX;
+            minY = win.selectionMinY;
+            maxY = win.selectionMaxY;
+            rot = 0;
+        }
         
         let cx = (minX + maxX) / 2;
         let cy = (minY + maxY) / 2;
         
         // Transform mouse to local unrotated space
-        let rot = action.rotation || 0;
         let lmx = mx;
         let lmy = my;
         if (rot !== 0) {
@@ -457,15 +600,19 @@ PanelWindow {
     }
 
     onCurrentColorChanged: {
-        if (win.selectedElementIndex !== -1) {
-            let action = win.actionHistory[win.selectedElementIndex];
-            if (action && action.color !== undefined) {
-                let colStr = win.currentColor.toString();
-                if (action.color !== colStr) {
+        if (win.selectedElementIndices.length > 0) {
+            let colStr = win.currentColor.toString();
+            let changed = false;
+            for (let idx of win.selectedElementIndices) {
+                let action = win.actionHistory[idx];
+                if (action && action.color !== undefined && action.color !== colStr) {
                     action.color = colStr;
-                    win.triggerReplay();
-                    previewCanvas.requestPaint();
+                    changed = true;
                 }
+            }
+            if (changed) {
+                win.triggerReplay();
+                previewCanvas.requestPaint();
             }
         }
     }
@@ -571,11 +718,12 @@ PanelWindow {
 
     function undo() {
         if (win.historyStep >= 0) {
-            win.selectedElementIndex = -1;
+            win.selectedElementIndices = [];
             win.grabbedElementIndex = -1;
             win.resizeGrabbed = false;
             win.rotateGrabbed = false;
             win.historyStep--;
+            win.updateSelectionBounds();
             triggerReplay();
             previewCanvas.requestPaint();
         }
@@ -583,11 +731,12 @@ PanelWindow {
 
     function redo() {
         if (win.historyStep < win.actionHistory.length - 1) {
-            win.selectedElementIndex = -1;
+            win.selectedElementIndices = [];
             win.grabbedElementIndex = -1;
             win.resizeGrabbed = false;
             win.rotateGrabbed = false;
             win.historyStep++;
+            win.updateSelectionBounds();
             triggerReplay();
             previewCanvas.requestPaint();
         }
@@ -611,6 +760,16 @@ PanelWindow {
         enabled: win.visible && win.currentTool === "mouse" && !activeTextEditor.visible
         sequence: "Ctrl+V"
         onActivated: win.pasteCopiedElement()
+    }
+    Shortcut {
+        enabled: win.visible && win.currentTool === "mouse" && !activeTextEditor.visible
+        sequence: "Delete"
+        onActivated: win.deleteSelectedElements()
+    }
+    Shortcut {
+        enabled: win.visible && win.currentTool === "mouse" && !activeTextEditor.visible
+        sequence: "BackSpace"
+        onActivated: win.deleteSelectedElements()
     }
 
     // IPC Handler to toggle visibility from bash / bar
@@ -817,7 +976,8 @@ PanelWindow {
                             }
                         }
                         
-                        function drawSelectionBox(ctx, x1, x2, y1, y2, rotation) {
+                        function drawSelectionBox(ctx, x1, x2, y1, y2, rotation, drawHandles) {
+                            if (drawHandles === undefined) drawHandles = true;
                             let borderOffset = 4 / zoomContainer.scale;
                             let handleSize = 8 / zoomContainer.scale;
                             
@@ -845,40 +1005,42 @@ PanelWindow {
                             ctx.setLineDash([]); // Reset dash
                             
                             // Draw handles
-                            ctx.fillStyle = "white";
-                            ctx.strokeStyle = "#3b82f6";
-                            ctx.lineWidth = 2 / zoomContainer.scale;
-                            
-                            function drawHandle(hx, hy) {
+                            if (drawHandles) {
+                                ctx.fillStyle = "white";
+                                ctx.strokeStyle = "#3b82f6";
+                                ctx.lineWidth = 2 / zoomContainer.scale;
+                                
+                                function drawHandle(hx, hy) {
+                                    ctx.beginPath();
+                                    ctx.arc(hx, hy, handleSize / 2, 0, 2 * Math.PI);
+                                    ctx.fill();
+                                    ctx.stroke();
+                                }
+                                
+                                drawHandle(bx1, by1); // TL
+                                drawHandle(bx2, by1); // TR
+                                drawHandle(bx1, by2); // BL
+                                drawHandle(bx2, by2); // BR
+                                
+                                // Draw rotation handle line and circle
+                                let rxHandleX = (bx1 + bx2) / 2;
+                                let rxHandleY = by1 - 24 / zoomContainer.scale;
+                                
                                 ctx.beginPath();
-                                ctx.arc(hx, hy, handleSize / 2, 0, 2 * Math.PI);
+                                ctx.strokeStyle = "#3b82f6";
+                                ctx.lineWidth = 1.5 / zoomContainer.scale;
+                                ctx.moveTo(rxHandleX, by1);
+                                ctx.lineTo(rxHandleX, rxHandleY);
+                                ctx.stroke();
+                                
+                                ctx.fillStyle = "white";
+                                ctx.strokeStyle = "#10b981"; // nice emerald green for rotation!
+                                ctx.lineWidth = 2 / zoomContainer.scale;
+                                ctx.beginPath();
+                                ctx.arc(rxHandleX, rxHandleY, handleSize / 2, 0, 2 * Math.PI);
                                 ctx.fill();
                                 ctx.stroke();
                             }
-                            
-                            drawHandle(bx1, by1); // TL
-                            drawHandle(bx2, by1); // TR
-                            drawHandle(bx1, by2); // BL
-                            drawHandle(bx2, by2); // BR
-                            
-                            // Draw rotation handle line and circle
-                            let rxHandleX = (bx1 + bx2) / 2;
-                            let rxHandleY = by1 - 24 / zoomContainer.scale;
-                            
-                            ctx.beginPath();
-                            ctx.strokeStyle = "#3b82f6";
-                            ctx.lineWidth = 1.5 / zoomContainer.scale;
-                            ctx.moveTo(rxHandleX, by1);
-                            ctx.lineTo(rxHandleX, rxHandleY);
-                            ctx.stroke();
-                            
-                            ctx.fillStyle = "white";
-                            ctx.strokeStyle = "#10b981"; // nice emerald green for rotation!
-                            ctx.lineWidth = 2 / zoomContainer.scale;
-                            ctx.beginPath();
-                            ctx.arc(rxHandleX, rxHandleY, handleSize / 2, 0, 2 * Math.PI);
-                            ctx.fill();
-                            ctx.stroke();
                             
                             ctx.restore();
                         }
@@ -924,40 +1086,39 @@ PanelWindow {
                                 }
                             }
                             
-                            // 2. Draw grabbed element with offset (when moving)
+                            // 2. Draw grabbed elements with offset (when moving)
                             if (win.grabbedElementIndex !== -1 && !win.resizeGrabbed && !win.rotateGrabbed) {
-                                let action = win.actionHistory[win.grabbedElementIndex];
-                                if (action) {
-                                    ctx.save();
-                                    let cx = (action.minX + action.maxX) / 2;
-                                    let cy = (action.minY + action.maxY) / 2;
-                                    
-                                    ctx.translate(win.grabbedElementDx, win.grabbedElementDy);
-                                    if (action.rotation && action.rotation !== 0) {
-                                        ctx.translate(cx, cy);
-                                        ctx.rotate(action.rotation);
-                                        ctx.translate(-cx, -cy);
+                                ctx.save();
+                                for (let i = 0; i < win.selectedElementIndices.length; i++) {
+                                    let idx = win.selectedElementIndices[i];
+                                    let action = win.actionHistory[idx];
+                                    if (action) {
+                                        ctx.save();
+                                        let cx = (action.minX + action.maxX) / 2;
+                                        let cy = (action.minY + action.maxY) / 2;
+                                        
+                                        ctx.translate(win.grabbedElementDx, win.grabbedElementDy);
+                                        if (action.rotation && action.rotation !== 0) {
+                                            ctx.translate(cx, cy);
+                                            ctx.rotate(action.rotation);
+                                            ctx.translate(-cx, -cy);
+                                        }
+                                        drawAction(ctx, action);
+                                        ctx.restore();
                                     }
-                                    drawAction(ctx, action);
-                                    drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, 0);
-                                    ctx.restore();
                                 }
+                                drawSelectionBox(ctx, win.selectionMinX + win.grabbedElementDx, win.selectionMaxX + win.grabbedElementDx, win.selectionMinY + win.grabbedElementDy, win.selectionMaxY + win.grabbedElementDy, 0, false);
+                                ctx.restore();
                             }
                             
-                            // 3. Draw resizing element
-                            if (win.resizeGrabbed && win.actionBeforeResize) {
+                            // 3. Draw resizing elements
+                            if (win.resizeGrabbed && win.actionsBeforeResize.length > 0) {
                                 let dx = win.grabbedElementDx;
                                 let dy = win.grabbedElementDy;
                                 
-                                let rot = win.actionBeforeResize.rotation || 0;
+                                let rot = 0;
                                 let ldx = dx;
                                 let ldy = dy;
-                                if (rot !== 0) {
-                                    let cos = Math.cos(-rot);
-                                    let sin = Math.sin(-rot);
-                                    ldx = dx * cos - dy * sin;
-                                    ldy = dx * sin + dy * cos;
-                                }
                                 
                                 let minX = win.grabbedMinX;
                                 let maxX = win.grabbedMaxX;
@@ -992,46 +1153,72 @@ PanelWindow {
                                 else if (win.resizeHandle === "TR") { refX = win.grabbedMinX; refY = win.grabbedMaxY; }
                                 else if (win.resizeHandle === "BL") { refX = win.grabbedMaxX; refY = win.grabbedMinY; }
                                 
-                                let tempAction = cloneAction(win.actionBeforeResize);
-                                scaleAction(tempAction, scaleX, scaleY, refX, refY);
-                                
                                 ctx.save();
-                                let cx = (minX + maxX) / 2;
-                                let cy = (minY + maxY) / 2;
-                                if (rot !== 0) {
-                                    ctx.translate(cx, cy);
-                                    ctx.rotate(rot);
-                                    ctx.translate(-cx, -cy);
+                                for (let i = 0; i < win.actionsBeforeResize.length; i++) {
+                                    let tempAction = cloneAction(win.actionsBeforeResize[i]);
+                                    scaleAction(tempAction, scaleX, scaleY, refX, refY);
+                                    
+                                    ctx.save();
+                                    if (tempAction.rotation && tempAction.rotation !== 0) {
+                                        let cx = (tempAction.minX + tempAction.maxX) / 2;
+                                        let cy = (tempAction.minY + tempAction.maxY) / 2;
+                                        ctx.translate(cx, cy);
+                                        ctx.rotate(tempAction.rotation);
+                                        ctx.translate(-cx, -cy);
+                                    }
+                                    drawAction(ctx, tempAction);
+                                    ctx.restore();
                                 }
-                                drawAction(ctx, tempAction);
-                                drawSelectionBox(ctx, minX, maxX, minY, maxY, 0);
+                                drawSelectionBox(ctx, minX, maxX, minY, maxY, 0, true);
                                 ctx.restore();
                             }
                             
-                            // 3.5 Draw rotating element
-                            if (win.rotateGrabbed && win.selectedElementIndex !== -1) {
-                                let action = win.actionHistory[win.selectedElementIndex];
-                                if (action) {
-                                    ctx.save();
-                                    let cx = (action.minX + action.maxX) / 2;
-                                    let cy = (action.minY + action.maxY) / 2;
-                                    
-                                    let rot = win.grabbedElementInitialRotation + win.grabbedElementRotationDelta;
-                                    ctx.translate(cx, cy);
-                                    ctx.rotate(rot);
-                                    ctx.translate(-cx, -cy);
-                                    
-                                    drawAction(ctx, action);
-                                    drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, 0);
-                                    ctx.restore();
+                            // 3.5 Draw rotating elements
+                            if (win.rotateGrabbed && win.selectedElementIndices.length > 0) {
+                                let cx = (win.selectionMinX + win.selectionMaxX) / 2;
+                                let cy = (win.selectionMinY + win.selectionMaxY) / 2;
+                                let delta = win.grabbedElementRotationDelta;
+                                
+                                ctx.save();
+                                for (let i = 0; i < win.selectedElementIndices.length; i++) {
+                                    let idx = win.selectedElementIndices[i];
+                                    let action = win.actionHistory[idx];
+                                    if (action) {
+                                        ctx.save();
+                                        let tempAction = cloneAction(action);
+                                        rotateAction(tempAction, delta, cx, cy);
+                                        
+                                        if (tempAction.rotation && tempAction.rotation !== 0) {
+                                            let acx = (tempAction.minX + tempAction.maxX) / 2;
+                                            let acy = (tempAction.minY + tempAction.maxY) / 2;
+                                            ctx.translate(acx, acy);
+                                            ctx.rotate(tempAction.rotation);
+                                            ctx.translate(-acx, -acy);
+                                        }
+                                        drawAction(ctx, tempAction);
+                                        ctx.restore();
+                                    }
                                 }
+                                drawSelectionBox(ctx, win.selectionMinX, win.selectionMaxX, win.selectionMinY, win.selectionMaxY, delta, true);
+                                ctx.restore();
                             }
                             
-                            // 4. Draw selection box around selected element (static hover/selected state)
-                            if (win.selectedElementIndex !== -1 && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed) {
-                                let action = win.actionHistory[win.selectedElementIndex];
-                                if (action) {
-                                    drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, action.rotation);
+                            // 4. Draw selection box around selected elements (static hover/selected state)
+                            if (win.selectedElementIndices.length > 0 && win.grabbedElementIndex === -1 && !win.resizeGrabbed && !win.rotateGrabbed) {
+                                if (win.selectedElementIndices.length === 1) {
+                                    let action = win.actionHistory[win.selectedElementIndices[0]];
+                                    if (action) {
+                                        drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, action.rotation, true);
+                                    }
+                                } else {
+                                    for (let i = 0; i < win.selectedElementIndices.length; i++) {
+                                        let idx = win.selectedElementIndices[i];
+                                        let action = win.actionHistory[idx];
+                                        if (action) {
+                                            drawSelectionBox(ctx, action.minX, action.maxX, action.minY, action.maxY, action.rotation, false);
+                                        }
+                                    }
+                                    drawSelectionBox(ctx, win.selectionMinX, win.selectionMaxX, win.selectionMinY, win.selectionMaxY, 0, true);
                                 }
                             }
                         }
@@ -1420,7 +1607,7 @@ PanelWindow {
                                     ctx.fillRect(0, 0, width, height);
                                     ctx.globalCompositeOperation = "source-over";
                                 } else if (action.type === "stroke") {
-                                    if (h === win.grabbedElementIndex || (h === win.selectedElementIndex && (win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                    if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
                                     ctx.save();
                                     if (action.rotation && action.rotation !== 0) {
                                         let cx = (action.minX + action.maxX) / 2;
@@ -1445,7 +1632,7 @@ PanelWindow {
                                     }
                                     ctx.restore();
                                 } else if (action.type === "shape") {
-                                    if (h === win.grabbedElementIndex || (h === win.selectedElementIndex && (win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                    if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
                                     ctx.save();
                                     if (action.rotation && action.rotation !== 0) {
                                         let cx = (action.minX + action.maxX) / 2;
@@ -1479,7 +1666,7 @@ PanelWindow {
                                     }
                                     ctx.restore();
                                 } else if (action.type === "text") {
-                                    if (h === win.editingTextIndex || h === win.grabbedElementIndex || (h === win.selectedElementIndex && (win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                    if (h === win.editingTextIndex || (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed))) continue;
                                     ctx.save();
                                     if (action.rotation && action.rotation !== 0) {
                                         let cx = (action.minX + action.maxX) / 2;
@@ -1586,60 +1773,88 @@ PanelWindow {
                             win.showColorPicker = false;
 
                             if (win.currentTool === "mouse") {
-                                if (win.selectedElementIndex !== -1) {
+                                if (win.selectedElementIndices.length > 0) {
                                     let handle = getHoveredHandle(mouse.x, mouse.y);
                                     if (handle === "ROT") {
-                                        let action = win.actionHistory[win.selectedElementIndex];
-                                        if (action) {
-                                            win.rotateGrabbed = true;
-                                            let cx = (action.minX + action.maxX) / 2;
-                                            let cy = (action.minY + action.maxY) / 2;
-                                            win.grabbedInitialAngle = Math.atan2(mouse.y - cy, mouse.x - cx);
-                                            win.grabbedElementInitialRotation = action.rotation || 0;
-                                            
-                                            mouse.accepted = true;
-                                            win.triggerReplay();
-                                            previewCanvas.requestPaint();
-                                            return;
-                                        }
+                                        win.rotateGrabbed = true;
+                                        let cx = (win.selectionMinX + win.selectionMaxX) / 2;
+                                        let cy = (win.selectionMinY + win.selectionMaxY) / 2;
+                                        win.grabbedInitialAngle = Math.atan2(mouse.y - cy, mouse.x - cx);
+                                        win.grabbedElementInitialRotation = win.selectionRotation;
+                                        
+                                        mouse.accepted = true;
+                                        win.triggerReplay();
+                                        previewCanvas.requestPaint();
+                                        return;
                                     } else if (handle !== "") {
-                                        let action = win.actionHistory[win.selectedElementIndex];
-                                        if (action) {
-                                            win.resizeHandle = handle;
-                                            win.resizeGrabbed = true;
-                                            win.grabStartMouseX = mouse.x;
-                                            win.grabStartMouseY = mouse.y;
-                                            win.grabbedMinX = action.minX;
-                                            win.grabbedMaxX = action.maxX;
-                                            win.grabbedMinY = action.minY;
-                                            win.grabbedMaxY = action.maxY;
-                                            win.grabbedElementDx = 0;
-                                            win.grabbedElementDy = 0;
-                                            win.actionBeforeResize = cloneAction(action);
-                                            
-                                            mouse.accepted = true;
-                                            win.triggerReplay();
-                                            previewCanvas.requestPaint();
-                                            return;
+                                        win.resizeHandle = handle;
+                                        win.resizeGrabbed = true;
+                                        win.grabStartMouseX = mouse.x;
+                                        win.grabStartMouseY = mouse.y;
+                                        win.grabbedMinX = win.selectionMinX;
+                                        win.grabbedMaxX = win.selectionMaxX;
+                                        win.grabbedMinY = win.selectionMinY;
+                                        win.grabbedMaxY = win.selectionMaxY;
+                                        win.grabbedElementDx = 0;
+                                        win.grabbedElementDy = 0;
+                                        
+                                        win.actionsBeforeResize = [];
+                                        for (let idx of win.selectedElementIndices) {
+                                            win.actionsBeforeResize.push(cloneAction(win.actionHistory[idx]));
                                         }
+                                        
+                                        mouse.accepted = true;
+                                        win.triggerReplay();
+                                        previewCanvas.requestPaint();
+                                        return;
                                     }
                                 }
                                 
                                 if (win.hoveredElementIndex !== -1) {
-                                    win.selectedElementIndex = win.hoveredElementIndex;
-                                    win.grabbedElementIndex = win.hoveredElementIndex;
-                                    win.grabStartMouseX = mouse.x;
-                                    win.grabStartMouseY = mouse.y;
-                                    win.grabbedElementDx = 0;
-                                    win.grabbedElementDy = 0;
-                                    mouse.accepted = true;
+                                    let isShiftHeld = (mouse.modifiers & Qt.ShiftModifier);
+                                    let idx = win.hoveredElementIndex;
+                                    
+                                    if (isShiftHeld) {
+                                        let foundIdx = win.selectedElementIndices.indexOf(idx);
+                                        if (foundIdx !== -1) {
+                                            let newIndices = win.selectedElementIndices.slice();
+                                            newIndices.splice(foundIdx, 1);
+                                            win.selectedElementIndices = newIndices;
+                                        } else {
+                                            let newIndices = win.selectedElementIndices.slice();
+                                            newIndices.push(idx);
+                                            win.selectedElementIndices = newIndices;
+                                        }
+                                    } else {
+                                        if (win.selectedElementIndices.indexOf(idx) === -1) {
+                                            win.selectedElementIndices = [idx];
+                                        }
+                                    }
+                                    
+                                    win.updateSelectionBounds();
+                                    
+                                    if (win.selectedElementIndices.length > 0) {
+                                        win.grabbedElementIndex = idx;
+                                        win.grabStartMouseX = mouse.x;
+                                        win.grabStartMouseY = mouse.y;
+                                        win.grabbedElementDx = 0;
+                                        win.grabbedElementDy = 0;
+                                        mouse.accepted = true;
+                                    } else {
+                                        mouse.accepted = false;
+                                    }
+                                    
                                     win.triggerReplay();
                                     previewCanvas.requestPaint();
                                 } else {
-                                    if (win.selectedElementIndex !== -1) {
-                                        win.selectedElementIndex = -1;
-                                        win.triggerReplay();
-                                        previewCanvas.requestPaint();
+                                    let isShiftHeld = (mouse.modifiers & Qt.ShiftModifier);
+                                    if (!isShiftHeld) {
+                                        if (win.selectedElementIndices.length > 0) {
+                                            win.selectedElementIndices = [];
+                                            win.updateSelectionBounds();
+                                            win.triggerReplay();
+                                            previewCanvas.requestPaint();
+                                        }
                                     }
                                     mouse.accepted = false; // let DragHandler pan the board
                                 }
@@ -1732,22 +1947,19 @@ PanelWindow {
                         onPositionChanged: (mouse) => {
                             if (pressed) {
                                 if (win.currentTool === "mouse" && win.rotateGrabbed) {
-                                    let action = win.actionHistory[win.selectedElementIndex];
-                                    if (action) {
-                                        let cx = (action.minX + action.maxX) / 2;
-                                        let cy = (action.minY + action.maxY) / 2;
-                                        let currentAngle = Math.atan2(mouse.y - cy, mouse.x - cx);
-                                        let delta = currentAngle - win.grabbedInitialAngle;
-                                        
-                                        if (mouse.modifiers & Qt.ShiftModifier) {
-                                            let totalRot = win.grabbedElementInitialRotation + delta;
-                                            let snap = Math.PI / 12; // 15 deg
-                                            totalRot = Math.round(totalRot / snap) * snap;
-                                            delta = totalRot - win.grabbedElementInitialRotation;
-                                        }
-                                        win.grabbedElementRotationDelta = delta;
-                                        previewCanvas.requestPaint();
+                                    let cx = (win.selectionMinX + win.selectionMaxX) / 2;
+                                    let cy = (win.selectionMinY + win.selectionMaxY) / 2;
+                                    let currentAngle = Math.atan2(mouse.y - cy, mouse.x - cx);
+                                    let delta = currentAngle - win.grabbedInitialAngle;
+                                    
+                                    if (mouse.modifiers & Qt.ShiftModifier) {
+                                        let totalRot = win.grabbedElementInitialRotation + delta;
+                                        let snap = Math.PI / 12; // 15 deg
+                                        totalRot = Math.round(totalRot / snap) * snap;
+                                        delta = totalRot - win.grabbedElementInitialRotation;
                                     }
+                                    win.grabbedElementRotationDelta = delta;
+                                    previewCanvas.requestPaint();
                                     return;
                                 }
 
@@ -1803,7 +2015,7 @@ PanelWindow {
                                 }
                             } else {
                                 let dist = Math.sqrt(Math.pow(mouse.x - win.lastHoverX, 2) + Math.pow(mouse.y - win.lastHoverY, 2));
-                                if (win.selectedElementIndex !== -1 || dist > 6) {
+                                if (win.selectedElementIndices.length > 0 || dist > 6) {
                                     win.lastHoverX = mouse.x;
                                     win.lastHoverY = mouse.y;
                                     win.updateHoverState(mouse.x, mouse.y);
@@ -1821,33 +2033,32 @@ PanelWindow {
 
                         onReleased: (mouse) => {
                             if (win.currentTool === "mouse") {
-                                if (win.rotateGrabbed && win.selectedElementIndex !== -1) {
-                                    let action = win.actionHistory[win.selectedElementIndex];
-                                    if (action) {
-                                        let newRotation = win.grabbedElementInitialRotation + win.grabbedElementRotationDelta;
-                                        if (mouse.modifiers & Qt.ShiftModifier) {
-                                            let snap = Math.PI / 12; // 15 degrees
-                                            newRotation = Math.round(newRotation / snap) * snap;
-                                        }
-                                        action.rotation = newRotation;
+                                if (win.rotateGrabbed && win.selectedElementIndices.length > 0) {
+                                    let cx = (win.selectionMinX + win.selectionMaxX) / 2;
+                                    let cy = (win.selectionMinY + win.selectionMaxY) / 2;
+                                    let delta = win.grabbedElementRotationDelta;
+                                    
+                                    if (mouse.modifiers & Qt.ShiftModifier) {
+                                        let snap = Math.PI / 12; // 15 degrees
+                                        delta = Math.round(delta / snap) * snap;
                                     }
+                                    
+                                    for (let i = 0; i < win.selectedElementIndices.length; i++) {
+                                        let idx = win.selectedElementIndices[i];
+                                        let action = win.actionHistory[idx];
+                                        if (action) {
+                                            rotateAction(action, delta, cx, cy);
+                                        }
+                                    }
+                                    
                                     win.rotateGrabbed = false;
                                     win.grabbedElementRotationDelta = 0;
+                                    win.updateSelectionBounds();
                                     win.triggerReplay();
                                     previewCanvas.requestPaint();
-                                } else if (win.resizeGrabbed && win.actionBeforeResize && win.selectedElementIndex !== -1) {
+                                } else if (win.resizeGrabbed && win.actionsBeforeResize.length > 0 && win.selectedElementIndices.length > 0) {
                                     let dx = win.grabbedElementDx;
                                     let dy = win.grabbedElementDy;
-                                    
-                                    let rot = win.actionBeforeResize.rotation || 0;
-                                    let ldx = dx;
-                                    let ldy = dy;
-                                    if (rot !== 0) {
-                                        let cos = Math.cos(-rot);
-                                        let sin = Math.sin(-rot);
-                                        ldx = dx * cos - dy * sin;
-                                        ldy = dx * sin + dy * cos;
-                                    }
                                     
                                     let minX = win.grabbedMinX;
                                     let maxX = win.grabbedMaxX;
@@ -1855,17 +2066,17 @@ PanelWindow {
                                     let maxY = win.grabbedMaxY;
                                     
                                     if (win.resizeHandle === "BR") {
-                                        maxX = Math.max(minX + 5, win.grabbedMaxX + ldx);
-                                        maxY = Math.max(minY + 5, win.grabbedMaxY + ldy);
+                                        maxX = Math.max(minX + 5, win.grabbedMaxX + dx);
+                                        maxY = Math.max(minY + 5, win.grabbedMaxY + dy);
                                     } else if (win.resizeHandle === "TL") {
-                                        minX = Math.min(maxX - 5, win.grabbedMinX + ldx);
-                                        minY = Math.min(maxY - 5, win.grabbedMinY + ldy);
+                                        minX = Math.min(maxX - 5, win.grabbedMinX + dx);
+                                        minY = Math.min(maxY - 5, win.grabbedMinY + dy);
                                     } else if (win.resizeHandle === "TR") {
-                                        maxX = Math.max(minX + 5, win.grabbedMaxX + ldx);
-                                        minY = Math.min(maxY - 5, win.grabbedMinY + ldy);
+                                        maxX = Math.max(minX + 5, win.grabbedMaxX + dx);
+                                        minY = Math.min(maxY - 5, win.grabbedMinY + dy);
                                     } else if (win.resizeHandle === "BL") {
-                                        minX = Math.min(maxX - 5, win.grabbedMinX + ldx);
-                                        maxY = Math.max(minY + 5, win.grabbedMaxY + ldy);
+                                        minX = Math.min(maxX - 5, win.grabbedMinX + dx);
+                                        maxY = Math.max(minY + 5, win.grabbedMaxY + dy);
                                     }
                                     
                                     let W0 = win.grabbedMaxX - win.grabbedMinX;
@@ -1882,51 +2093,60 @@ PanelWindow {
                                     else if (win.resizeHandle === "TR") { refX = win.grabbedMinX; refY = win.grabbedMaxY; }
                                     else if (win.resizeHandle === "BL") { refX = win.grabbedMaxX; refY = win.grabbedMinY; }
                                     
-                                    let finalAction = cloneAction(win.actionBeforeResize);
-                                    scaleAction(finalAction, scaleX, scaleY, refX, refY);
+                                    for (let i = 0; i < win.selectedElementIndices.length; i++) {
+                                        let idx = win.selectedElementIndices[i];
+                                        let finalAction = cloneAction(win.actionsBeforeResize[i]);
+                                        scaleAction(finalAction, scaleX, scaleY, refX, refY);
+                                        win.actionHistory[idx] = finalAction;
+                                    }
                                     
-                                    win.actionHistory[win.selectedElementIndex] = finalAction;
-                                    
-                                    win.actionBeforeResize = null;
+                                    win.actionsBeforeResize = [];
                                     win.resizeGrabbed = false;
                                     win.resizeHandle = "";
                                     win.grabbedElementDx = 0;
                                     win.grabbedElementDy = 0;
+                                    win.updateSelectionBounds();
                                     win.triggerReplay();
                                     previewCanvas.requestPaint();
                                 } else if (win.grabbedElementIndex !== -1) {
                                     let dx = win.grabbedElementDx;
                                     let dy = win.grabbedElementDy;
-                                    let action = win.actionHistory[win.grabbedElementIndex];
-                                    if (action) {
-                                        if (action.type === "text" || action.type === "shape") {
-                                            action.x1 += dx;
-                                            action.y1 += dy;
-                                            action.x2 += dx;
-                                            action.y2 += dy;
-                                            if (action.type === "text") {
-                                                action.x += dx;
-                                                action.y += dy;
+                                    
+                                    for (let i = 0; i < win.selectedElementIndices.length; i++) {
+                                        let idx = win.selectedElementIndices[i];
+                                        let action = win.actionHistory[idx];
+                                        if (action) {
+                                            if (action.type === "text" || action.type === "shape") {
+                                                action.x1 += dx;
+                                                action.y1 += dy;
+                                                action.x2 += dx;
+                                                action.y2 += dy;
+                                                if (action.type === "text") {
+                                                    action.x += dx;
+                                                    action.y += dy;
+                                                }
+                                            } else if (action.type === "stroke") {
+                                                for (var s = 0; s < action.segments.length; s++) {
+                                                    action.segments[s].x1 += dx;
+                                                    action.segments[s].y1 += dy;
+                                                    action.segments[s].x2 += dx;
+                                                    action.segments[s].y2 += dy;
+                                                }
                                             }
-                                        } else if (action.type === "stroke") {
-                                            for (var s = 0; s < action.segments.length; s++) {
-                                                action.segments[s].x1 += dx;
-                                                action.segments[s].y1 += dy;
-                                                action.segments[s].x2 += dx;
-                                                action.segments[s].y2 += dy;
+                                            
+                                            if (action.minX !== undefined) {
+                                                action.minX += dx;
+                                                action.maxX += dx;
+                                                action.minY += dy;
+                                                action.maxY += dy;
                                             }
-                                        }
-                                        
-                                        if (action.minX !== undefined) {
-                                            action.minX += dx;
-                                            action.maxX += dx;
-                                            action.minY += dy;
-                                            action.maxY += dy;
                                         }
                                     }
+                                    
                                     win.grabbedElementIndex = -1;
                                     win.grabbedElementDx = 0;
                                     win.grabbedElementDy = 0;
+                                    win.updateSelectionBounds();
                                     win.triggerReplay();
                                     previewCanvas.requestPaint();
                                 }
@@ -2203,12 +2423,13 @@ PanelWindow {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        win.selectedElementIndex = -1;
+                        win.selectedElementIndices = [];
                         win.grabbedElementIndex = -1;
                         win.resizeGrabbed = false;
                         win.rotateGrabbed = false;
                         win.actionHistory = [];
                         win.historyStep = -1;
+                        win.updateSelectionBounds();
                         drawCanvas._replayPending = true;
                         drawCanvas.requestPaint();
                         previewCanvas.requestPaint();
