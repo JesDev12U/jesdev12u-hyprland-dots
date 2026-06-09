@@ -600,19 +600,6 @@ PanelWindow {
         border.color: win.panelBorderColor
         clip: true
 
-        // Grid dots pattern
-        Image {
-            anchors.fill: parent
-            fillMode: Image.Tile
-            opacity: 0.15
-            
-            property real dotRadius: 1.2
-            property real dotSpacing: 12
-            property color dotC: win.baseTextColor
-            
-            source: `data:image/svg+xml;utf8,<svg width='${dotSpacing}' height='${dotSpacing}' xmlns='http://www.w3.org/2000/svg'><circle cx='${dotSpacing/2}' cy='${dotSpacing/2}' r='${dotRadius}' fill='rgb(${dotC.r*255},${dotC.g*255},${dotC.b*255})' /></svg>`
-        }
-
         // =========================================================
         // --- CAMERA RIG (Handles viewport size, rotation, gestures)
         // =========================================================
@@ -620,6 +607,26 @@ PanelWindow {
             id: cameraRig
             anchors.fill: parent
             clip: true
+
+            // Background color and grid pattern inside cameraRig for grabToImage capture
+            Rectangle {
+                anchors.fill: parent
+                color: win.solidBgColor
+                z: -2
+            }
+
+            Image {
+                anchors.fill: parent
+                fillMode: Image.Tile
+                opacity: 0.15
+                z: -1
+                
+                property real dotRadius: 1.2
+                property real dotSpacing: 12
+                property color dotC: win.baseTextColor
+                
+                source: `data:image/svg+xml;utf8,<svg width='${dotSpacing}' height='${dotSpacing}' xmlns='http://www.w3.org/2000/svg'><circle cx='${dotSpacing/2}' cy='${dotSpacing/2}' r='${dotRadius}' fill='rgb(${dotC.r*255},${dotC.g*255},${dotC.b*255})' /></svg>`
+            }
 
             function zoomBy(factor) {
                 zoomContainer.scale = Math.max(win.minZoom, Math.min(zoomContainer.scale * factor, win.maxZoom));
@@ -2053,9 +2060,9 @@ PanelWindow {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         var tempPath = Paths.cache + "/whiteboard.png";
-                        drawCanvas.grabToImage(function(result) {
+                        cameraRig.grabToImage(function(result) {
                             if (result.saveToFile(tempPath)) {
-                                Quickshell.execDetached(["sh", "-c", "wl-copy -t image/png < " + tempPath]);
+                                Quickshell.execDetached(["sh", "-c", "wl-copy -t image/png < \"" + tempPath + "\""]);
                                 Toaster.toast("Pizarra", "Copiado al portapapeles", "content_copy", Toast.Success);
                             } else {
                                 Toaster.toast("Pizarra", "Error al guardar el dibujo", "error", Toast.Error);
