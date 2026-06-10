@@ -11,7 +11,8 @@ StyledRect {
 
     readonly property color colour: Colours.palette.m3tertiary
     readonly property int padding: Config.bar.clock.background ? Tokens.padding.medium : Tokens.padding.extraSmall
-    readonly property var font: Tokens.font.body.builders.small.scale(1.1)
+    readonly property real fontScale: 0.85 // Ajusta este valor para cambiar el tamaño de fuente (ej. 0.8 para más pequeño, 1.0 para el tamaño original)
+    readonly property var font: Tokens.font.body.builders.small.scale(1.1 * root.fontScale)
 
     implicitWidth: Tokens.sizes.bar.innerWidth
     implicitHeight: layout.implicitHeight + root.padding * 2
@@ -43,7 +44,7 @@ StyledRect {
 
             horizontalAlignment: StyledText.AlignHCenter
             text: Time.format("ddd\nd")
-            font: Tokens.font.body.small
+            font: Tokens.font.body.builders.small.scale(root.fontScale).build()
             color: root.colour
         }
 
@@ -98,7 +99,7 @@ StyledRect {
 
             sourceComponent: StyledText {
                 text: Time.amPmStr.toLowerCase()
-                font: Tokens.font.body.builders.small.scale(0.9).build()
+                font: Tokens.font.body.builders.small.scale(0.9 * root.fontScale).build()
                 color: root.colour
             }
         }

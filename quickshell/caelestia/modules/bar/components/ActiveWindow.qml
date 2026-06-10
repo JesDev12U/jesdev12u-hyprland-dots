@@ -12,6 +12,7 @@ Item {
     required property var bar
     required property Brightness.Monitor monitor
     property color colour: Colours.palette.m3primary
+    readonly property real fontScale: 0.85 // Ajusta este valor para cambiar el tamaño de fuente del título (ej. 0.8 para más pequeño, 1.0 para el tamaño original)
 
     readonly property string windowTitle: {
         const title = Hypr.activeToplevel?.title;
@@ -86,7 +87,7 @@ Item {
         id: metrics
 
         text: root.windowTitle
-        font: root.Tokens.font.body.builders.small.letterSpacing(1.4).build()
+        font: root.Tokens.font.body.builders.small.scale(root.fontScale).letterSpacing(1.4).build()
         elide: Qt.ElideRight
         elideWidth: root.maxHeight - icon.height
 
