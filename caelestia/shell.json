@@ -48,6 +48,10 @@
         "wallpaperEnabled": true
     },
     "bar": {
+        "activeWindow": {
+            "compact": true,
+            "inverted": false
+        },
         "clock": {
             "background": false,
             "showDate": true,
@@ -133,10 +137,11 @@
             "activeTrail": false,
             "capitalisation": "preserve",
             "label": "  ",
+            "maxWindowIcons": 5,
             "occupiedBg": true,
             "occupiedLabel": "󰮯",
             "perMonitorWorkspaces": true,
-            "showWindows": true,
+            "showWindows": false,
             "showWindowsOnSpecialWorkspaces": true,
             "shown": 5,
             "specialWorkspaceIcons": [
