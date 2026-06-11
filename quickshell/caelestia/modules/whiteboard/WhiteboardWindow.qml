@@ -362,7 +362,8 @@ PanelWindow {
             maxX: action.maxX,
             minY: action.minY,
             maxY: action.maxY,
-            rotation: action.rotation
+            rotation: action.rotation,
+            historyIndex: action.historyIndex
         };
         if (action.segments) {
             clone.segments = [];
@@ -373,6 +374,12 @@ PanelWindow {
                     x2: action.segments[i].x2,
                     y2: action.segments[i].y2
                 });
+            }
+        }
+        if (action.eraserPaths) {
+            clone.eraserPaths = [];
+            for (var ep = 0; ep < action.eraserPaths.length; ep++) {
+                clone.eraserPaths.push(cloneAction(action.eraserPaths[ep]));
             }
         }
         return clone;
@@ -403,6 +410,12 @@ PanelWindow {
             }
         }
         
+        if (action.eraserPaths) {
+            for (var ep = 0; ep < action.eraserPaths.length; ep++) {
+                scaleAction(action.eraserPaths[ep], scaleX, scaleY, refX, refY);
+            }
+        }
+        
         // Recalculate bounds
         if (action.type === "stroke") {
             calculateStrokeBounds(action);
@@ -418,6 +431,42 @@ PanelWindow {
             action.maxX = action.x - 12 + estWidth;
             action.minY = action.y - estHeight / 2;
             action.maxY = action.y + estHeight / 2;
+        }
+    }
+
+    function shiftAction(action, dx, dy) {
+        if (!action) return;
+        if (action.type === "text" || action.type === "shape") {
+            action.x1 += dx;
+            action.y1 += dy;
+            action.x2 += dx;
+            action.y2 += dy;
+            if (action.type === "text") {
+                action.x += dx;
+                action.y += dy;
+            }
+        } else if (action.type === "stroke") {
+            if (action.segments) {
+                for (var s = 0; s < action.segments.length; s++) {
+                    action.segments[s].x1 += dx;
+                    action.segments[s].y1 += dy;
+                    action.segments[s].x2 += dx;
+                    action.segments[s].y2 += dy;
+                }
+            }
+        }
+        
+        if (action.minX !== undefined) {
+            action.minX += dx;
+            action.maxX += dx;
+            action.minY += dy;
+            action.maxY += dy;
+        }
+
+        if (action.eraserPaths) {
+            for (var ep = 0; ep < action.eraserPaths.length; ep++) {
+                shiftAction(action.eraserPaths[ep], dx, dy);
+            }
         }
     }
 
@@ -499,10 +548,132 @@ PanelWindow {
         }
     }
 
+    function isPointErasedByEraser(px, py, actionOrIndex) {
+        let action = typeof actionOrIndex === "number" ? win.actionHistory[actionOrIndex] : actionOrIndex;
+        if (!action || !action.eraserPaths) return false;
+        for (var i = 0; i < action.eraserPaths.length; i++) {
+            let ep = action.eraserPaths[i];
+            if (ep.historyIndex !== undefined && ep.historyIndex > win.historyStep) {
+                continue; // Skip undone eraser paths!
+            }
+            if (ep.minX !== undefined) {
+                let size = ep.penSize || 18;
+                let rad = size / 2;
+                if (px < ep.minX - rad || px > ep.maxX + rad ||
+                    py < ep.minY - rad || py > ep.maxY + rad) {
+                    continue;
+                }
+            }
+            let eraserSize = ep.penSize || 18;
+            let eraserRadius = eraserSize / 2;
+            if (ep.segments) {
+                for (var es = 0; es < ep.segments.length; es++) {
+                    let eseg = ep.segments[es];
+                    if (distToSegment(px, py, eseg.x1, eseg.y1, eseg.x2, eseg.y2) <= eraserRadius) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function isElementFullyErased(h) {
+        var action = win.actionHistory[h];
+        if (!action) return true;
+        if (action.tool === "eraser") return true;
+        
+        let hasErasers = false;
+        for (var he = h + 1; he <= win.historyStep; he++) {
+            var act = win.actionHistory[he];
+            if (act && act.type === "stroke" && act.tool === "eraser") {
+                hasErasers = true;
+                break;
+            }
+        }
+        if (!hasErasers) return false;
+
+        if (action.type === "stroke") {
+            if (!action.segments || action.segments.length === 0) return true;
+            for (var s = 0; s < action.segments.length; s++) {
+                let seg = action.segments[s];
+                if (!isPointErasedByEraser(seg.x1, seg.y1, h) || 
+                    !isPointErasedByEraser(seg.x2, seg.y2, h) || 
+                    !isPointErasedByEraser((seg.x1 + seg.x2)/2, (seg.y1 + seg.y2)/2, h)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
+        if (action.type === "shape") {
+            if (action.shapeType === "line" || action.shapeType === "arrow") {
+                return isPointErasedByEraser(action.x1, action.y1, h) && 
+                       isPointErasedByEraser(action.x2, action.y2, h) && 
+                       isPointErasedByEraser((action.x1 + action.x2)/2, (action.y1 + action.y2)/2, h);
+            } else if (action.shapeType === "rectangle") {
+                let cx = (action.x1 + action.x2)/2;
+                let cy = (action.y1 + action.y2)/2;
+                let corners = [
+                    {x: action.x1, y: action.y1},
+                    {x: action.x2, y: action.y1},
+                    {x: action.x2, y: action.y2},
+                    {x: action.x1, y: action.y2},
+                    {x: cx, y: action.y1},
+                    {x: action.x2, y: cy},
+                    {x: cx, y: action.y2},
+                    {x: action.x1, y: cy}
+                ];
+                for (var i = 0; i < corners.length; i++) {
+                    if (!isPointErasedByEraser(corners[i].x, corners[i].y, h)) return false;
+                }
+                return true;
+            } else if (action.shapeType === "circle") {
+                let cx = (action.x1 + action.x2) / 2;
+                let cy = (action.y1 + action.y2) / 2;
+                let rx = Math.abs(action.x2 - action.x1) / 2;
+                let ry = Math.abs(action.y2 - action.y1) / 2;
+                let pts = [
+                    {x: cx, y: cy},
+                    {x: cx - rx, y: cy},
+                    {x: cx + rx, y: cy},
+                    {x: cx, y: cy - ry},
+                    {x: cx, y: cy + ry}
+                ];
+                for (var i = 0; i < pts.length; i++) {
+                    if (!isPointErasedByEraser(pts[i].x, pts[i].y, h)) return false;
+                }
+                return true;
+            }
+        }
+        
+        if (action.type === "text") {
+            let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
+            let estHeight = action.fontSize;
+            let x1 = action.x - 12;
+            let x2 = x1 + estWidth;
+            let y1 = action.y - estHeight / 2;
+            let y2 = action.y + estHeight / 2;
+            let pts = [
+                {x: x1, y: y1}, {x: x2, y: y1}, {x: x2, y: y2}, {x: x1, y: y2},
+                {x: (x1+x2)/2, y: (y1+y2)/2}
+            ];
+            for (var i = 0; i < pts.length; i++) {
+                if (!isPointErasedByEraser(pts[i].x, pts[i].y, h)) return false;
+            }
+            return true;
+        }
+        
+        return false;
+    }
+
     function getElementAt(mx, my) {
         for (var h = win.historyStep; h >= 0; h--) {
             var action = win.actionHistory[h];
             if (!action) continue;
+            if (action.tool === "eraser") continue;
+            if (isPointErasedByEraser(mx, my, action)) continue;
+            if (isElementFullyErased(h)) continue;
 
             // Compute bounds on demand if they aren't pre-calculated
             if (action.minX === undefined) {
@@ -699,6 +870,53 @@ PanelWindow {
         
         win.actionHistory = newHistory;
         win.historyStep = win.actionHistory.length - 1;
+
+        if (action.tool === "eraser") {
+            let eraserIdx = win.historyStep;
+            for (var i = 0; i < eraserIdx; i++) {
+                var prevAction = win.actionHistory[i];
+                if (prevAction && prevAction.tool !== "eraser" && prevAction.type !== "clear" && prevAction.type !== "fill_bg") {
+                    let margin = 10;
+                    let overlap = !(action.minX > prevAction.maxX + margin || 
+                                    action.maxX < prevAction.minX - margin || 
+                                    action.minY > prevAction.maxY + margin || 
+                                    action.maxY < prevAction.minY - margin);
+                    if (overlap) {
+                        if (!prevAction.eraserPaths) {
+                            prevAction.eraserPaths = [];
+                        }
+                        let clonedEraser = cloneAction(action);
+                        clonedEraser.historyIndex = eraserIdx;
+                        prevAction.eraserPaths.push(clonedEraser);
+                    }
+                }
+            }
+        }
+    }
+
+    function drawLocalErasers(ctx, action) {
+        if (action.eraserPaths && action.eraserPaths.length > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = "destination-out";
+            for (var i = 0; i < action.eraserPaths.length; i++) {
+                let ep = action.eraserPaths[i];
+                if (ep.historyIndex !== undefined && ep.historyIndex > win.historyStep) {
+                    continue; // Skip undone eraser paths!
+                }
+                ctx.lineWidth = ep.penSize;
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.beginPath();
+                if (ep.segments && ep.segments.length > 0) {
+                    ctx.moveTo(ep.segments[0].x1, ep.segments[0].y1);
+                    for (var k = 0; k < ep.segments.length; k++) {
+                        ctx.lineTo(ep.segments[k].x2, ep.segments[k].y2);
+                    }
+                    ctx.stroke();
+                }
+            }
+            ctx.restore();
+        }
     }
 
     function isPointOverUI(sceneX, sceneY) {
@@ -974,6 +1192,7 @@ PanelWindow {
                                     }
                                 }
                             }
+                            win.drawLocalErasers(ctx, action);
                         }
                         
                         function drawSelectionBox(ctx, x1, x2, y1, y2, rotation, drawHandles) {
@@ -1607,6 +1826,7 @@ PanelWindow {
                                     ctx.fillRect(0, 0, width, height);
                                     ctx.globalCompositeOperation = "source-over";
                                 } else if (action.type === "stroke") {
+                                    if (action.tool === "eraser") continue;
                                     if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
                                     ctx.save();
                                     if (action.rotation && action.rotation !== 0) {
@@ -1630,6 +1850,7 @@ PanelWindow {
                                             ctx.stroke();
                                         }
                                     }
+                                    win.drawLocalErasers(ctx, action);
                                     ctx.restore();
                                 } else if (action.type === "shape") {
                                     if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
@@ -1664,6 +1885,7 @@ PanelWindow {
                                     } else if (action.shapeType === "arrow") {
                                         win.drawArrow(ctx, action.x1, action.y1, action.x2, action.y2, action.penSize, action.color);
                                     }
+                                    win.drawLocalErasers(ctx, action);
                                     ctx.restore();
                                 } else if (action.type === "text") {
                                     if (h === win.editingTextIndex || (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed))) continue;
@@ -1686,6 +1908,7 @@ PanelWindow {
                                     ctx.font = style + " " + weight + " " + action.fontSize + "px " + family;
                                     ctx.textBaseline = "middle";
                                     ctx.fillText(action.text, action.x, action.y);
+                                    win.drawLocalErasers(ctx, action);
                                     ctx.restore();
                                 }
                             }
@@ -2116,30 +2339,7 @@ PanelWindow {
                                         let idx = win.selectedElementIndices[i];
                                         let action = win.actionHistory[idx];
                                         if (action) {
-                                            if (action.type === "text" || action.type === "shape") {
-                                                action.x1 += dx;
-                                                action.y1 += dy;
-                                                action.x2 += dx;
-                                                action.y2 += dy;
-                                                if (action.type === "text") {
-                                                    action.x += dx;
-                                                    action.y += dy;
-                                                }
-                                            } else if (action.type === "stroke") {
-                                                for (var s = 0; s < action.segments.length; s++) {
-                                                    action.segments[s].x1 += dx;
-                                                    action.segments[s].y1 += dy;
-                                                    action.segments[s].x2 += dx;
-                                                    action.segments[s].y2 += dy;
-                                                }
-                                            }
-                                            
-                                            if (action.minX !== undefined) {
-                                                action.minX += dx;
-                                                action.maxX += dx;
-                                                action.minY += dy;
-                                                action.maxY += dy;
-                                            }
+                                            win.shiftAction(action, dx, dy);
                                         }
                                     }
                                     
