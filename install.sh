@@ -722,6 +722,13 @@ step_6() {
     if [ -f "$INSTALL_DIR/caelestia/shell.json" ]; then
         sed -i "s|/home/jesdev12u|$HOME|g" "$INSTALL_DIR/caelestia/shell.json" >> "$LOG_FILE" 2>&1 || true
     fi
+    if [ -f "$INSTALL_DIR/hypr/scripts/keybinds_help.qml" ]; then
+        sed -i "s|/home/jesdev12u|$HOME|g" "$INSTALL_DIR/hypr/scripts/keybinds_help.qml" >> "$LOG_FILE" 2>&1 || true
+    fi
+    if [ -f "$INSTALL_DIR/hypr/scripts/toggle_keybinds_help.sh" ]; then
+        sed -i "s|/home/jesdev12u|$HOME|g" "$INSTALL_DIR/hypr/scripts/toggle_keybinds_help.sh" >> "$LOG_FILE" 2>&1 || true
+    fi
+
 
     create_symlink "$INSTALL_DIR/hypr" "$CONFIG_DIR/hypr"
     create_symlink "$INSTALL_DIR/quickshell/caelestia" "$CONFIG_DIR/quickshell/caelestia"
@@ -746,6 +753,7 @@ step_7() {
     
     chmod +x "$CONFIG_DIR/hypr/scripts/configs.sh" >> "$LOG_FILE" 2>&1
     chmod +x "$CONFIG_DIR/hypr/scripts/wsaction.sh" >> "$LOG_FILE" 2>&1
+    chmod +x "$CONFIG_DIR/hypr/scripts/toggle_keybinds_help.sh" >> "$LOG_FILE" 2>&1
     chmod +x "$CONFIG_DIR/caelestia/toggle_whiteboard.sh" >> "$LOG_FILE" 2>&1
 }
 
