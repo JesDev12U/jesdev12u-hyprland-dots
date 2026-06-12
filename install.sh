@@ -737,6 +737,7 @@ step_6() {
     create_symlink "$INSTALL_DIR/btop" "$CONFIG_DIR/btop"
     create_symlink "$INSTALL_DIR/thunar" "$CONFIG_DIR/thunar"
     create_symlink "$INSTALL_DIR/uwsm" "$CONFIG_DIR/uwsm"
+    create_symlink "$INSTALL_DIR/systemd/user/xdg-desktop-portal.service" "$CONFIG_DIR/systemd/user/xdg-desktop-portal.service"
     create_symlink "$INSTALL_DIR/kitty" "$CONFIG_DIR/kitty"
     create_symlink "$INSTALL_DIR/zshrc" "$HOME/.zshrc"
     create_symlink "$INSTALL_DIR/caelestia" "$CONFIG_DIR/caelestia"
