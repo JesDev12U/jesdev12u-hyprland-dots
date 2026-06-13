@@ -52,8 +52,14 @@ PanelWindow {
         }
     }
 
+    onIsFullScreenChanged: {
+        win.triggerReplay();
+    }
+
     Component.onCompleted: {
         WhiteboardService.window = win;
+        win.jsState.history = win.actionHistory;
+        win.jsState.step = win.historyStep;
     }
 
     // =========================================================
@@ -150,31 +156,7 @@ PanelWindow {
             
             for (let i = 0; i < win.copiedElements.length; i++) {
                 let pasted = cloneAction(win.copiedElements[i]);
-                
-                if (pasted.type === "stroke") {
-                    for (var s = 0; s < pasted.segments.length; s++) {
-                        pasted.segments[s].x1 += offset;
-                        pasted.segments[s].y1 += offset;
-                        pasted.segments[s].x2 += offset;
-                        pasted.segments[s].y2 += offset;
-                    }
-                } else if (pasted.type === "shape") {
-                    pasted.x1 += offset;
-                    pasted.y1 += offset;
-                    pasted.x2 += offset;
-                    pasted.y2 += offset;
-                } else if (pasted.type === "text") {
-                    pasted.x += offset;
-                    pasted.y += offset;
-                }
-                
-                if (pasted.minX !== undefined) {
-                    pasted.minX += offset;
-                    pasted.maxX += offset;
-                    pasted.minY += offset;
-                    pasted.maxY += offset;
-                }
-                
+                win.shiftAction(pasted, offset, offset);
                 win.commitAction(pasted);
                 newIndices.push(win.historyStep);
                 newCopiedList.push(pasted);
@@ -204,6 +186,8 @@ PanelWindow {
         win.selectedElementIndices = [];
         win.actionHistory = newHistory;
         win.historyStep = win.actionHistory.length - 1;
+        win.jsState.history = win.actionHistory;
+        win.jsState.step = win.historyStep;
         win.updateSelectionBounds();
         
         win.triggerReplay();
@@ -252,6 +236,13 @@ PanelWindow {
         action.maxX += dx;
         action.minY += dy;
         action.maxY += dy;
+
+        // Shift eraser paths recursively
+        if (action.eraserPaths) {
+            for (var ep = 0; ep < action.eraserPaths.length; ep++) {
+                shiftAction(action.eraserPaths[ep], dx, dy);
+            }
+        }
     }
 
     function rotatePoint(px, py, cx, cy, angle) {
@@ -548,29 +539,39 @@ PanelWindow {
         }
     }
 
-    function isPointErasedByEraser(px, py, actionOrIndex) {
-        let action = typeof actionOrIndex === "number" ? win.actionHistory[actionOrIndex] : actionOrIndex;
-        if (!action || !action.eraserPaths) return false;
-        for (var i = 0; i < action.eraserPaths.length; i++) {
-            let ep = action.eraserPaths[i];
-            if (ep.historyIndex !== undefined && ep.historyIndex > win.historyStep) {
-                continue; // Skip undone eraser paths!
-            }
-            if (ep.minX !== undefined) {
-                let size = ep.penSize || 18;
-                let rad = size / 2;
-                if (px < ep.minX - rad || px > ep.maxX + rad ||
-                    py < ep.minY - rad || py > ep.maxY + rad) {
-                    continue;
+    function isPointErasedByEraser(px, py, actionOrIndex, optHistory, optStep) {
+        let history = optHistory !== undefined ? optHistory : win.actionHistory;
+        let step = optStep !== undefined ? optStep : win.historyStep;
+        let actionIdx = typeof actionOrIndex === "number" ? actionOrIndex : history.indexOf(actionOrIndex);
+        if (actionIdx === -1) return false;
+        
+        for (var he = actionIdx + 1; he <= step; he++) {
+            let ep = history[he];
+            if (ep && ep.type === "stroke" && ep.tool === "eraser") {
+                if (ep.minX !== undefined) {
+                    let size = ep.penSize || 18;
+                    let rad = size / 2;
+                    if (px < ep.minX - rad || px > ep.maxX + rad ||
+                        py < ep.minY - rad || py > ep.maxY + rad) {
+                        continue;
+                    }
                 }
-            }
-            let eraserSize = ep.penSize || 18;
-            let eraserRadius = eraserSize / 2;
-            if (ep.segments) {
-                for (var es = 0; es < ep.segments.length; es++) {
-                    let eseg = ep.segments[es];
-                    if (distToSegment(px, py, eseg.x1, eseg.y1, eseg.x2, eseg.y2) <= eraserRadius) {
-                        return true;
+                let eraserRadius = (ep.penSize || 18) / 2;
+                if (ep.segments) {
+                    for (var es = 0; es < ep.segments.length; es++) {
+                        let eseg = ep.segments[es];
+                        // Quick segment bounding box check
+                        let sMinX = eseg.x1 < eseg.x2 ? eseg.x1 : eseg.x2;
+                        let sMaxX = eseg.x1 > eseg.x2 ? eseg.x1 : eseg.x2;
+                        if (px < sMinX - eraserRadius || px > sMaxX + eraserRadius) continue;
+                        
+                        let sMinY = eseg.y1 < eseg.y2 ? eseg.y1 : eseg.y2;
+                        let sMaxY = eseg.y1 > eseg.y2 ? eseg.y1 : eseg.y2;
+                        if (py < sMinY - eraserRadius || py > sMaxY + eraserRadius) continue;
+
+                        if (distToSegmentSq(px, py, eseg.x1, eseg.y1, eseg.x2, eseg.y2) <= eraserRadius * eraserRadius) {
+                            return true;
+                        }
                     }
                 }
             }
@@ -578,39 +579,118 @@ PanelWindow {
         return false;
     }
 
-    function isElementFullyErased(h) {
-        var action = win.actionHistory[h];
+    function isPointErasedByEraserList(px, py, overlappingErasers, optHistory) {
+        let history = optHistory !== undefined ? optHistory : win.actionHistory;
+        for (var i = 0; i < overlappingErasers.length; i++) {
+            let epIdx = overlappingErasers[i];
+            let ep = history[epIdx];
+            if (ep) {
+                let size = ep.penSize || 18;
+                let rad = size / 2;
+                if (px < ep.minX - rad || px > ep.maxX + rad ||
+                    py < ep.minY - rad || py > ep.maxY + rad) {
+                    continue;
+                }
+                let eraserRadius = size / 2;
+                if (ep.segments) {
+                    for (var es = 0; es < ep.segments.length; es++) {
+                        let eseg = ep.segments[es];
+                        // Quick segment bounding box check
+                        let sMinX = eseg.x1 < eseg.x2 ? eseg.x1 : eseg.x2;
+                        let sMaxX = eseg.x1 > eseg.x2 ? eseg.x1 : eseg.x2;
+                        if (px < sMinX - eraserRadius || px > sMaxX + eraserRadius) continue;
+                        
+                        let sMinY = eseg.y1 < eseg.y2 ? eseg.y1 : eseg.y2;
+                        let sMaxY = eseg.y1 > eseg.y2 ? eseg.y1 : eseg.y2;
+                        if (py < sMinY - eraserRadius || py > sMaxY + eraserRadius) continue;
+
+                        if (distToSegmentSq(px, py, eseg.x1, eseg.y1, eseg.x2, eseg.y2) <= eraserRadius * eraserRadius) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function isElementFullyErased(h, optHistory, optStep) {
+        let history = optHistory !== undefined ? optHistory : win.actionHistory;
+        let step = optStep !== undefined ? optStep : win.historyStep;
+        var action = history[h];
         if (!action) return true;
         if (action.tool === "eraser") return true;
         
-        let hasErasers = false;
-        for (var he = h + 1; he <= win.historyStep; he++) {
-            var act = win.actionHistory[he];
-            if (act && act.type === "stroke" && act.tool === "eraser") {
-                hasErasers = true;
-                break;
+        if (action.isFullyErasedCache !== undefined) {
+            return action.isFullyErasedCache;
+        }
+
+        if (action.minX === undefined) {
+            if (action.type === "stroke") {
+                calculateStrokeBounds(action);
+            } else if (action.type === "shape") {
+                action.minX = Math.min(action.x1, action.x2);
+                action.maxX = Math.max(action.x1, action.x2);
+                action.minY = Math.min(action.y1, action.y2);
+                action.maxY = Math.max(action.y1, action.y2);
+            } else if (action.type === "text") {
+                let estWidth = win.getTextEstWidth(action.text, action.fontSize, action.fontFamily);
+                let estHeight = action.fontSize;
+                action.minX = action.x - 12;
+                action.maxX = action.x - 12 + estWidth;
+                action.minY = action.y - estHeight / 2;
+                action.maxY = action.y + estHeight / 2;
             }
         }
-        if (!hasErasers) return false;
+
+        let overlappingErasers = [];
+        let margin = 10;
+        for (var he = h + 1; he <= step; he++) {
+            var act = history[he];
+            if (act && act.type === "stroke" && act.tool === "eraser") {
+                if (act.minX === undefined) {
+                    calculateStrokeBounds(act);
+                }
+                let overlap = !(act.minX > action.maxX + margin || 
+                                act.maxX < action.minX - margin || 
+                                act.minY > action.maxY + margin || 
+                                act.maxY < action.minY - margin);
+                if (overlap) {
+                    overlappingErasers.push(he);
+                }
+            }
+        }
+
+        if (overlappingErasers.length === 0) {
+            action.isFullyErasedCache = false;
+            return false;
+        }
 
         if (action.type === "stroke") {
-            if (!action.segments || action.segments.length === 0) return true;
+            if (!action.segments || action.segments.length === 0) {
+                action.isFullyErasedCache = true;
+                return true;
+            }
             for (var s = 0; s < action.segments.length; s++) {
                 let seg = action.segments[s];
-                if (!isPointErasedByEraser(seg.x1, seg.y1, h) || 
-                    !isPointErasedByEraser(seg.x2, seg.y2, h) || 
-                    !isPointErasedByEraser((seg.x1 + seg.x2)/2, (seg.y1 + seg.y2)/2, h)) {
+                if (!isPointErasedByEraserList(seg.x1, seg.y1, overlappingErasers, history) || 
+                    !isPointErasedByEraserList(seg.x2, seg.y2, overlappingErasers, history) || 
+                    !isPointErasedByEraserList((seg.x1 + seg.x2)/2, (seg.y1 + seg.y2)/2, overlappingErasers, history)) {
+                    action.isFullyErasedCache = false;
                     return false;
                 }
             }
+            action.isFullyErasedCache = true;
             return true;
         }
         
         if (action.type === "shape") {
             if (action.shapeType === "line" || action.shapeType === "arrow") {
-                return isPointErasedByEraser(action.x1, action.y1, h) && 
-                       isPointErasedByEraser(action.x2, action.y2, h) && 
-                       isPointErasedByEraser((action.x1 + action.x2)/2, (action.y1 + action.y2)/2, h);
+                let res = isPointErasedByEraserList(action.x1, action.y1, overlappingErasers, history) && 
+                       isPointErasedByEraserList(action.x2, action.y2, overlappingErasers, history) && 
+                       isPointErasedByEraserList((action.x1 + action.x2)/2, (action.y1 + action.y2)/2, overlappingErasers, history);
+                action.isFullyErasedCache = res;
+                return res;
             } else if (action.shapeType === "rectangle") {
                 let cx = (action.x1 + action.x2)/2;
                 let cy = (action.y1 + action.y2)/2;
@@ -625,8 +705,12 @@ PanelWindow {
                     {x: action.x1, y: cy}
                 ];
                 for (var i = 0; i < corners.length; i++) {
-                    if (!isPointErasedByEraser(corners[i].x, corners[i].y, h)) return false;
+                    if (!isPointErasedByEraserList(corners[i].x, corners[i].y, overlappingErasers, history)) {
+                        action.isFullyErasedCache = false;
+                        return false;
+                    }
                 }
+                action.isFullyErasedCache = true;
                 return true;
             } else if (action.shapeType === "circle") {
                 let cx = (action.x1 + action.x2) / 2;
@@ -641,8 +725,12 @@ PanelWindow {
                     {x: cx, y: cy + ry}
                 ];
                 for (var i = 0; i < pts.length; i++) {
-                    if (!isPointErasedByEraser(pts[i].x, pts[i].y, h)) return false;
+                    if (!isPointErasedByEraserList(pts[i].x, pts[i].y, overlappingErasers, history)) {
+                        action.isFullyErasedCache = false;
+                        return false;
+                    }
                 }
+                action.isFullyErasedCache = true;
                 return true;
             }
         }
@@ -659,11 +747,16 @@ PanelWindow {
                 {x: (x1+x2)/2, y: (y1+y2)/2}
             ];
             for (var i = 0; i < pts.length; i++) {
-                if (!isPointErasedByEraser(pts[i].x, pts[i].y, h)) return false;
+                if (!isPointErasedByEraserList(pts[i].x, pts[i].y, overlappingErasers, history)) {
+                    action.isFullyErasedCache = false;
+                    return false;
+                }
             }
+            action.isFullyErasedCache = true;
             return true;
         }
         
+        action.isFullyErasedCache = false;
         return false;
     }
 
@@ -672,9 +765,7 @@ PanelWindow {
             var action = win.actionHistory[h];
             if (!action) continue;
             if (action.tool === "eraser") continue;
-            if (isPointErasedByEraser(mx, my, action)) continue;
             if (isElementFullyErased(h)) continue;
-
             // Compute bounds on demand if they aren't pre-calculated
             if (action.minX === undefined) {
                 if (action.type === "stroke") {
@@ -702,13 +793,15 @@ PanelWindow {
                 }
             }
 
+            if (isPointErasedByEraser(mx, my, h)) continue;
+
             if (action.type === "text") {
                 return h;
             }
             
             if (action.type === "shape") {
                 if (action.shapeType === "line" || action.shapeType === "arrow") {
-                    if (distToSegment(mx, my, action.x1, action.y1, action.x2, action.y2) < 15) {
+                    if (distToSegmentSq(mx, my, action.x1, action.y1, action.x2, action.y2) < 225) {
                         return h;
                     }
                 } else {
@@ -720,7 +813,7 @@ PanelWindow {
                 let step = Math.max(1, Math.floor(action.segments.length / 50));
                 for (var s = 0; s < action.segments.length; s += step) {
                     let seg = action.segments[s];
-                    if (distToSegment(mx, my, seg.x1, seg.y1, seg.x2, seg.y2) < 15) {
+                    if (distToSegmentSq(mx, my, seg.x1, seg.y1, seg.x2, seg.y2) < 225) {
                         return h;
                     }
                 }
@@ -729,12 +822,49 @@ PanelWindow {
         return -1;
     }
 
-    function distToSegment(px, py, x1, y1, x2, y2) {
-        let l2 = Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2);
-        if (l2 === 0) return Math.sqrt(Math.pow(px - x1, 2) + Math.pow(py - y1, 2));
+    function distToSegmentSq(px, py, x1, y1, x2, y2) {
+        let l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+        if (l2 === 0) return (px - x1) * (px - x1) + (py - y1) * (py - y1);
         let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
         t = Math.max(0, Math.min(1, t));
-        return Math.sqrt(Math.pow(px - (x1 + t * (x2 - x1)), 2) + Math.pow(py - (y1 + t * (y2 - y1)), 2));
+        let projX = x1 + t * (x2 - x1);
+        let projY = y1 + t * (y2 - y1);
+        return (px - projX) * (px - projX) + (py - projY) * (py - projY);
+    }
+
+    function simplifyPath(segments, tolerance) {
+        if (!segments || segments.length <= 1) return segments;
+        
+        let result = [];
+        let startPt = { x: segments[0].x1, y: segments[0].y1 };
+        
+        for (let i = 0; i < segments.length; i++) {
+            let seg = segments[i];
+            let dx = seg.x2 - startPt.x;
+            let dy = seg.y2 - startPt.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist >= tolerance || i === segments.length - 1) {
+                result.push({
+                    x1: startPt.x,
+                    y1: startPt.y,
+                    x2: seg.x2,
+                    y2: seg.y2
+                });
+                startPt = { x: seg.x2, y: seg.y2 };
+            }
+        }
+        return result;
+    }
+
+    function invalidateFullyErasedCache() {
+        if (!win.actionHistory) return;
+        for (var i = 0; i < win.actionHistory.length; i++) {
+            var action = win.actionHistory[i];
+            if (action) {
+                action.isFullyErasedCache = undefined;
+            }
+        }
     }
 
     // UI Toggle States
@@ -822,8 +952,21 @@ PanelWindow {
     // =========================================================
     property var actionHistory: []
     property int historyStep: -1
+    property bool isCommittingAction: false
+    property var jsState: ({ "history": [], "step": -1 })
+    onActionHistoryChanged: {
+        if (!win.isCommittingAction && !win.isCommittingEraser) {
+            win.invalidateFullyErasedCache();
+        }
+    }
+    onHistoryStepChanged: {
+        if (!win.isCommittingAction) {
+            win.invalidateFullyErasedCache();
+        }
+    }
     property int maxHistory: 50000
     property var currentAction: null
+    property bool isCommittingEraser: false
 
     function calculateStrokeBounds(action) {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -844,9 +987,42 @@ PanelWindow {
         action.maxY = maxY;
     }
 
-    function commitAction(action) {
-        if (action.type === "stroke") {
+    function splitStrokeAction(action, maxSegmentsPerChunk) {
+        if (!action.segments || action.segments.length <= maxSegmentsPerChunk) {
             calculateStrokeBounds(action);
+            return [action];
+        }
+        
+        let chunks = [];
+        let undoGroupId = Date.now() + "_" + Math.random();
+        
+        for (var i = 0; i < action.segments.length; i += maxSegmentsPerChunk) {
+            let chunkSegments = action.segments.slice(i, i + maxSegmentsPerChunk);
+            let chunkAction = {
+                type: action.type,
+                tool: action.tool,
+                color: action.color,
+                penSize: action.penSize,
+                segments: chunkSegments,
+                undoGroup: undoGroupId
+            };
+            calculateStrokeBounds(chunkAction);
+            chunks.push(chunkAction);
+        }
+        return chunks;
+    }
+
+    function commitAction(action) {
+        let actionsToCommit = [action];
+        
+        if (action.type === "stroke") {
+            if (action.tool === "eraser") {
+                action.segments = win.simplifyPath(action.segments, 6.0);
+                actionsToCommit = splitStrokeAction(action, 50);
+            } else {
+                action.segments = win.simplifyPath(action.segments, 2.0);
+                calculateStrokeBounds(action);
+            }
         } else if (action.type === "shape") {
             action.minX = Math.min(action.x1, action.x2);
             action.maxX = Math.max(action.x1, action.x2);
@@ -861,63 +1037,51 @@ PanelWindow {
             action.maxY = action.y + estHeight / 2;
         }
 
+        if (action.tool === "eraser") {
+            win.isCommittingEraser = true;
+        }
+
         var newHistory = win.actionHistory.slice(0, win.historyStep + 1);
-        newHistory.push(action);
+        for (let k = 0; k < actionsToCommit.length; k++) {
+            newHistory.push(actionsToCommit[k]);
+        }
         
         if (newHistory.length > win.maxHistory) {
             newHistory.shift();
         }
         
+        win.isCommittingAction = true;
         win.actionHistory = newHistory;
         win.historyStep = win.actionHistory.length - 1;
+        win.isCommittingAction = false;
+        
+        win.jsState.history = win.actionHistory;
+        win.jsState.step = win.historyStep;
 
         if (action.tool === "eraser") {
+            let margin = 10;
             let eraserIdx = win.historyStep;
-            for (var i = 0; i < eraserIdx; i++) {
-                var prevAction = win.actionHistory[i];
-                if (prevAction && prevAction.tool !== "eraser" && prevAction.type !== "clear" && prevAction.type !== "fill_bg") {
-                    let margin = 10;
-                    let overlap = !(action.minX > prevAction.maxX + margin || 
-                                    action.maxX < prevAction.minX - margin || 
-                                    action.minY > prevAction.maxY + margin || 
-                                    action.maxY < prevAction.minY - margin);
-                    if (overlap) {
-                        if (!prevAction.eraserPaths) {
-                            prevAction.eraserPaths = [];
+            for (let k = 0; k < actionsToCommit.length; k++) {
+                let chunkEraser = actionsToCommit[k];
+                let limitIdx = eraserIdx - (actionsToCommit.length - 1 - k);
+                for (var i = 0; i < limitIdx; i++) {
+                    var prevAction = win.actionHistory[i];
+                    if (prevAction && prevAction.tool !== "eraser" && prevAction.type !== "clear" && prevAction.type !== "fill_bg") {
+                        let overlap = !(chunkEraser.minX > prevAction.maxX + margin || 
+                                        chunkEraser.maxX < prevAction.minX - margin || 
+                                        chunkEraser.minY > prevAction.maxY + margin || 
+                                        chunkEraser.maxY < prevAction.minY - margin);
+                        if (overlap) {
+                            prevAction.isFullyErasedCache = undefined;
                         }
-                        let clonedEraser = cloneAction(action);
-                        clonedEraser.historyIndex = eraserIdx;
-                        prevAction.eraserPaths.push(clonedEraser);
                     }
                 }
             }
+            win.isCommittingEraser = false;
         }
     }
 
-    function drawLocalErasers(ctx, action) {
-        if (action.eraserPaths && action.eraserPaths.length > 0) {
-            ctx.save();
-            ctx.globalCompositeOperation = "destination-out";
-            for (var i = 0; i < action.eraserPaths.length; i++) {
-                let ep = action.eraserPaths[i];
-                if (ep.historyIndex !== undefined && ep.historyIndex > win.historyStep) {
-                    continue; // Skip undone eraser paths!
-                }
-                ctx.lineWidth = ep.penSize;
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-                ctx.beginPath();
-                if (ep.segments && ep.segments.length > 0) {
-                    ctx.moveTo(ep.segments[0].x1, ep.segments[0].y1);
-                    for (var k = 0; k < ep.segments.length; k++) {
-                        ctx.lineTo(ep.segments[k].x2, ep.segments[k].y2);
-                    }
-                    ctx.stroke();
-                }
-            }
-            ctx.restore();
-        }
-    }
+    function drawLocalErasers(ctx, action) {}
 
     function isPointOverUI(sceneX, sceneY) {
         if (typeof colorPickerPopup !== "undefined" && colorPickerPopup.visible && isPointOverItem(colorPickerPopup, sceneX, sceneY)) return true;
@@ -940,7 +1104,17 @@ PanelWindow {
             win.grabbedElementIndex = -1;
             win.resizeGrabbed = false;
             win.rotateGrabbed = false;
-            win.historyStep--;
+            
+            let currentGroup = win.actionHistory[win.historyStep].undoGroup;
+            if (currentGroup !== undefined) {
+                while (win.historyStep >= 0 && win.actionHistory[win.historyStep].undoGroup === currentGroup) {
+                    win.historyStep--;
+                }
+            } else {
+                win.historyStep--;
+            }
+            
+            win.jsState.step = win.historyStep;
             win.updateSelectionBounds();
             triggerReplay();
             previewCanvas.requestPaint();
@@ -953,7 +1127,18 @@ PanelWindow {
             win.grabbedElementIndex = -1;
             win.resizeGrabbed = false;
             win.rotateGrabbed = false;
-            win.historyStep++;
+            
+            let nextStep = win.historyStep + 1;
+            let nextGroup = win.actionHistory[nextStep].undoGroup;
+            if (nextGroup !== undefined) {
+                while (win.historyStep < win.actionHistory.length - 1 && win.actionHistory[win.historyStep + 1].undoGroup === nextGroup) {
+                    win.historyStep++;
+                }
+            } else {
+                win.historyStep++;
+            }
+            
+            win.jsState.step = win.historyStep;
             win.updateSelectionBounds();
             triggerReplay();
             previewCanvas.requestPaint();
@@ -1047,24 +1232,11 @@ PanelWindow {
             anchors.fill: parent
             clip: true
 
-            // Background color and grid pattern inside cameraRig for grabToImage capture
+            // Viewport Void Background (visible when zoomed out or panned to the edges)
             Rectangle {
                 anchors.fill: parent
-                color: win.solidBgColor
-                z: -2
-            }
-
-            Image {
-                anchors.fill: parent
-                fillMode: Image.Tile
-                opacity: 0.15
-                z: -1
-                
-                property real dotRadius: 1.2
-                property real dotSpacing: 12
-                property color dotC: win.baseTextColor
-                
-                source: `data:image/svg+xml;utf8,<svg width='${dotSpacing}' height='${dotSpacing}' xmlns='http://www.w3.org/2000/svg'><circle cx='${dotSpacing/2}' cy='${dotSpacing/2}' r='${dotRadius}' fill='rgb(${dotC.r*255},${dotC.g*255},${dotC.b*255})' /></svg>`
+                color: Qt.darker(win.solidBgColor, 1.1)
+                z: -3
             }
 
             function zoomBy(factor) {
@@ -1096,6 +1268,32 @@ PanelWindow {
                 
                 transformOrigin: Item.Center
                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+
+                // The Whiteboard Paper Background & Border
+                Rectangle {
+                    anchors.fill: parent
+                    color: win.solidBgColor
+                    border.color: win.panelBorderColor
+                    border.width: 1.5
+                    radius: 8
+                    z: -2
+                }
+
+                // Grid dots inside the Whiteboard area (pans and scales with the canvas)
+                Image {
+                    anchors.fill: parent
+                    fillMode: Image.Tile
+                    opacity: 0.15
+                    z: -1
+                    
+                    property real dotRadius: 1.2
+                    property real dotSpacing: 12
+                    property color dotC: win.baseTextColor
+                    
+                    source: `data:image/svg+xml;utf8,<svg width='${dotSpacing}' height='${dotSpacing}' xmlns='http://www.w3.org/2000/svg'><circle cx='${dotSpacing/2}' cy='${dotSpacing/2}' r='${dotRadius}' fill='rgb(${dotC.r*255},${dotC.g*255},${dotC.b*255})' /></svg>`
+                    sourceSize.width: dotSpacing
+                    sourceSize.height: dotSpacing
+                }
 
                 DragHandler {
                     id: canvasPanHandler
@@ -1133,7 +1331,7 @@ PanelWindow {
                     Canvas {
                         id: previewCanvas
                         anchors.fill: parent
-                        renderTarget: Canvas.FramebufferObject
+                        renderTarget: Canvas.Image
                         
                         function drawAction(ctx, action) {
                             if (!action) return;
@@ -1551,6 +1749,8 @@ PanelWindow {
                                 newHistory.splice(win.editingTextIndex, 1);
                                 win.actionHistory = newHistory;
                                 win.historyStep--;
+                                win.jsState.history = win.actionHistory;
+                                win.jsState.step = win.historyStep;
                                 win.editingTextIndex = -1;
                                 win.triggerReplay();
                             }
@@ -1751,7 +1951,7 @@ PanelWindow {
                     anchors.fill: parent
                     z: 1
                     
-                    renderTarget: Canvas.FramebufferObject
+                    renderTarget: Canvas.Image
                     
                     property real lastX: -1
                     property real lastY: -1
@@ -1820,13 +2020,12 @@ PanelWindow {
                     onPaint: {
                         var ctx = getContext("2d");
                         
-                        var isActivelyDrawing = (win.currentAction !== null);
-                        var isPanningOrZooming = canvasPanHandler.active || canvasPinchHandler.active;
-                        var shouldReplay = _replayPending || (!_clearPending && _queue.length === 0 && !isActivelyDrawing && !isPanningOrZooming);
-                        if (shouldReplay) {
+                        if (_replayPending) {
                             ctx.clearRect(0, 0, width, height);
-                            for (var h = 0; h <= win.historyStep; h++) {
-                                var action = win.actionHistory[h];
+                            let hStep = win.jsState.step;
+                            let hHistory = win.jsState.history;
+                            for (var h = 0; h <= hStep; h++) {
+                                var action = hHistory[h];
                                 if (!action) continue;
 
                                 if (action.type === "clear") {
@@ -1836,91 +2035,135 @@ PanelWindow {
                                     ctx.fillStyle = action.color;
                                     ctx.fillRect(0, 0, width, height);
                                     ctx.globalCompositeOperation = "source-over";
-                                } else if (action.type === "stroke") {
-                                    if (action.tool === "eraser") continue;
-                                    if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
-                                    ctx.save();
-                                    if (action.rotation && action.rotation !== 0) {
-                                        let cx = (action.minX + action.maxX) / 2;
-                                        let cy = (action.minY + action.maxY) / 2;
-                                        ctx.translate(cx, cy);
-                                        ctx.rotate(action.rotation);
-                                        ctx.translate(-cx, -cy);
-                                    }
-                                    if (action.tool === "brush") {
-                                        renderBrushLine(ctx, action, false);
-                                    } else {
-                                        ctx.beginPath();
-                                        applyToolStyle(ctx, action.tool, action.color, action.penSize);
-                                        
-                                        if (action.segments && action.segments.length > 0) {
-                                            ctx.moveTo(action.segments[0].x1, action.segments[0].y1);
-                                            for (var k = 0; k < action.segments.length; k++) {
-                                                ctx.lineTo(action.segments[k].x2, action.segments[k].y2);
+                                } else {
+                                    if (action.tool !== "eraser" && win.isElementFullyErased(h, hHistory, hStep)) continue;
+
+                                    if (action.type === "stroke") {
+                                        if (action.tool === "eraser") {
+                                            // Check if this eraser is useful
+                                            let isEraserUseful = false;
+                                            for (let j = 0; j < h; j++) {
+                                                let prevAct = hHistory[j];
+                                                if (prevAct && prevAct.tool !== "eraser" && prevAct.type !== "clear" && prevAct.type !== "fill_bg") {
+                                                    if (!win.isElementFullyErased(j, hHistory, hStep)) {
+                                                        if (action.minX !== undefined && prevAct.minX !== undefined) {
+                                                            let margin = 10;
+                                                            let overlap = !(action.minX > prevAct.maxX + margin || 
+                                                                            action.maxX < prevAct.minX - margin || 
+                                                                            action.minY > prevAct.maxY + margin || 
+                                                                            action.maxY < prevAct.minY - margin);
+                                                            if (overlap) {
+                                                                isEraserUseful = true;
+                                                                break;
+                                                            }
+                                                        } else {
+                                                            isEraserUseful = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
                                             }
-                                            ctx.stroke();
+                                            if (!isEraserUseful) {
+                                                continue; // Skip this eraser completely!
+                                            }
+
+                                            ctx.save();
+                                            applyToolStyle(ctx, "eraser", "rgba(0,0,0,1)", action.penSize);
+                                            if (action.segments && action.segments.length > 0) {
+                                                ctx.beginPath();
+                                                ctx.moveTo(action.segments[0].x1, action.segments[0].y1);
+                                                for (var k = 0; k < action.segments.length; k++) {
+                                                    ctx.lineTo(action.segments[k].x2, action.segments[k].y2);
+                                                }
+                                                ctx.stroke();
+                                            }
+                                            ctx.restore();
+                                            continue;
                                         }
+                                        if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
+                                        ctx.save();
+                                        if (action.rotation && action.rotation !== 0) {
+                                            let cx = (action.minX + action.maxX) / 2;
+                                            let cy = (action.minY + action.maxY) / 2;
+                                            ctx.translate(cx, cy);
+                                            ctx.rotate(action.rotation);
+                                            ctx.translate(-cx, -cy);
+                                        }
+                                        if (action.tool === "brush") {
+                                            renderBrushLine(ctx, action, false);
+                                        } else {
+                                            ctx.beginPath();
+                                            applyToolStyle(ctx, action.tool, action.color, action.penSize);
+                                            
+                                            if (action.segments && action.segments.length > 0) {
+                                                ctx.moveTo(action.segments[0].x1, action.segments[0].y1);
+                                                for (var k = 0; k < action.segments.length; k++) {
+                                                    ctx.lineTo(action.segments[k].x2, action.segments[k].y2);
+                                                }
+                                                ctx.stroke();
+                                            }
+                                        }
+                                        win.drawLocalErasers(ctx, action);
+                                        ctx.restore();
+                                    } else if (action.type === "shape") {
+                                        if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
+                                        ctx.save();
+                                        if (action.rotation && action.rotation !== 0) {
+                                            let cx = (action.minX + action.maxX) / 2;
+                                            let cy = (action.minY + action.maxY) / 2;
+                                            ctx.translate(cx, cy);
+                                            ctx.rotate(action.rotation);
+                                            ctx.translate(-cx, -cy);
+                                        }
+                                        ctx.beginPath();
+                                        applyToolStyle(ctx, "pen", action.color, action.penSize);
+                                        if (action.shapeType === "rectangle") {
+                                            let rx = Math.min(action.x1, action.x2);
+                                            let ry = Math.min(action.y1, action.y2);
+                                            let rw = Math.abs(action.x2 - action.x1);
+                                            let rh = Math.abs(action.y2 - action.y1);
+                                            ctx.rect(rx, ry, rw, rh);
+                                            ctx.stroke();
+                                        } else if (action.shapeType === "circle") {
+                                            let rx = Math.min(action.x1, action.x2);
+                                            let ry = Math.min(action.y1, action.y2);
+                                            let rw = Math.abs(action.x2 - action.x1);
+                                            let rh = Math.abs(action.y2 - action.y1);
+                                            ctx.ellipse(rx, ry, rw, rh);
+                                            ctx.stroke();
+                                        } else if (action.shapeType === "line") {
+                                            ctx.moveTo(action.x1, action.y1);
+                                            ctx.lineTo(action.x2, action.y2);
+                                            ctx.stroke();
+                                        } else if (action.shapeType === "arrow") {
+                                            win.drawArrow(ctx, action.x1, action.y1, action.x2, action.y2, action.penSize, action.color);
+                                        }
+                                        win.drawLocalErasers(ctx, action);
+                                        ctx.restore();
+                                    } else if (action.type === "text") {
+                                        if (h === win.editingTextIndex || (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed))) continue;
+                                        ctx.save();
+                                        if (action.rotation && action.rotation !== 0) {
+                                            let cx = (action.minX + action.maxX) / 2;
+                                            let cy = (action.minY + action.maxY) / 2;
+                                            ctx.translate(cx, cy);
+                                            ctx.rotate(action.rotation);
+                                            ctx.translate(-cx, -cy);
+                                        }
+                                        ctx.globalCompositeOperation = "source-over";
+                                        ctx.fillStyle = action.color;
+                                        let weight = (action.isBold === undefined || action.isBold) ? "bold" : "normal";
+                                        let style = action.isItalic ? "italic" : "normal";
+                                        let family = "Inter, system-ui, sans-serif";
+                                        if (action.fontFamily === "serif") family = "Georgia, serif";
+                                        else if (action.fontFamily === "monospace") family = "JetBrains Mono, monospace";
+                                        else if (action.fontFamily === "cursive") family = "Caveat, cursive";
+                                        ctx.font = style + " " + weight + " " + action.fontSize + "px " + family;
+                                        ctx.textBaseline = "middle";
+                                        ctx.fillText(action.text, action.x, action.y);
+                                        win.drawLocalErasers(ctx, action);
+                                        ctx.restore();
                                     }
-                                    win.drawLocalErasers(ctx, action);
-                                    ctx.restore();
-                                } else if (action.type === "shape") {
-                                    if (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed)) continue;
-                                    ctx.save();
-                                    if (action.rotation && action.rotation !== 0) {
-                                        let cx = (action.minX + action.maxX) / 2;
-                                        let cy = (action.minY + action.maxY) / 2;
-                                        ctx.translate(cx, cy);
-                                        ctx.rotate(action.rotation);
-                                        ctx.translate(-cx, -cy);
-                                    }
-                                    ctx.beginPath();
-                                    applyToolStyle(ctx, "pen", action.color, action.penSize);
-                                    if (action.shapeType === "rectangle") {
-                                        let rx = Math.min(action.x1, action.x2);
-                                        let ry = Math.min(action.y1, action.y2);
-                                        let rw = Math.abs(action.x2 - action.x1);
-                                        let rh = Math.abs(action.y2 - action.y1);
-                                        ctx.rect(rx, ry, rw, rh);
-                                        ctx.stroke();
-                                    } else if (action.shapeType === "circle") {
-                                        let rx = Math.min(action.x1, action.x2);
-                                        let ry = Math.min(action.y1, action.y2);
-                                        let rw = Math.abs(action.x2 - action.x1);
-                                        let rh = Math.abs(action.y2 - action.y1);
-                                        ctx.ellipse(rx, ry, rw, rh);
-                                        ctx.stroke();
-                                    } else if (action.shapeType === "line") {
-                                        ctx.moveTo(action.x1, action.y1);
-                                        ctx.lineTo(action.x2, action.y2);
-                                        ctx.stroke();
-                                    } else if (action.shapeType === "arrow") {
-                                        win.drawArrow(ctx, action.x1, action.y1, action.x2, action.y2, action.penSize, action.color);
-                                    }
-                                    win.drawLocalErasers(ctx, action);
-                                    ctx.restore();
-                                } else if (action.type === "text") {
-                                    if (h === win.editingTextIndex || (win.selectedElementIndices.indexOf(h) !== -1 && (win.grabbedElementIndex !== -1 || win.resizeGrabbed || win.rotateGrabbed))) continue;
-                                    ctx.save();
-                                    if (action.rotation && action.rotation !== 0) {
-                                        let cx = (action.minX + action.maxX) / 2;
-                                        let cy = (action.minY + action.maxY) / 2;
-                                        ctx.translate(cx, cy);
-                                        ctx.rotate(action.rotation);
-                                        ctx.translate(-cx, -cy);
-                                    }
-                                    ctx.globalCompositeOperation = "source-over";
-                                    ctx.fillStyle = action.color;
-                                    let weight = (action.isBold === undefined || action.isBold) ? "bold" : "normal";
-                                    let style = action.isItalic ? "italic" : "normal";
-                                    let family = "Inter, system-ui, sans-serif";
-                                    if (action.fontFamily === "serif") family = "Georgia, serif";
-                                    else if (action.fontFamily === "monospace") family = "JetBrains Mono, monospace";
-                                    else if (action.fontFamily === "cursive") family = "Caveat, cursive";
-                                    ctx.font = style + " " + weight + " " + action.fontSize + "px " + family;
-                                    ctx.textBaseline = "middle";
-                                    ctx.fillText(action.text, action.x, action.y);
-                                    win.drawLocalErasers(ctx, action);
-                                    ctx.restore();
                                 }
                             }
                             _replayPending = false;
@@ -2219,33 +2462,40 @@ PanelWindow {
                                 }
 
                                 if (win.currentTool !== "fill" && win.currentTool !== "mouse" && win.currentTool !== "text" && win.currentAction) {
-                                    var segment = {
-                                        x1: drawCanvas.lastX, y1: drawCanvas.lastY,
-                                        x2: mouse.x, y2: mouse.y
-                                    };
+                                    let dx = mouse.x - drawCanvas.lastX;
+                                    let dy = mouse.y - drawCanvas.lastY;
+                                    let distSq = dx * dx + dy * dy;
+                                    let minDistance = 3.0; // 3px distance filter for lightweight paths
                                     
-                                    win.currentAction.segments.push(segment);
+                                    if (distSq >= minDistance * minDistance) {
+                                        var segment = {
+                                            x1: drawCanvas.lastX, y1: drawCanvas.lastY,
+                                            x2: mouse.x, y2: mouse.y
+                                        };
+                                        
+                                        win.currentAction.segments.push(segment);
 
-                                    drawCanvas._queue.push({
-                                        type: "stroke",
-                                        tool: win.currentTool,
-                                        color: win.currentColor.toString(),
-                                        penSize: win.actualToolSize,
-                                        x1: segment.x1, y1: segment.y1, 
-                                        x2: segment.x2, y2: segment.y2
-                                    });
-                                    
-                                    var rad = 20;
-                                    var minX = Math.min(drawCanvas.lastX, mouse.x) - rad;
-                                    var minY = Math.min(drawCanvas.lastY, mouse.y) - rad;
-                                    var w = Math.abs(mouse.x - drawCanvas.lastX) + rad*2;
-                                    var h = Math.abs(mouse.y - drawCanvas.lastY) + rad*2;
-                                    
-                                    drawCanvas.lastX = mouse.x;
-                                    drawCanvas.lastY = mouse.y;
-                                    
-                                    drawCanvas.markDirty(Qt.rect(minX, minY, w, h));
-                                    drawCanvas.requestPaint();
+                                        drawCanvas._queue.push({
+                                            type: "stroke",
+                                            tool: win.currentTool,
+                                            color: win.currentColor.toString(),
+                                            penSize: win.actualToolSize,
+                                            x1: segment.x1, y1: segment.y1, 
+                                            x2: segment.x2, y2: segment.y2
+                                        });
+                                        
+                                        var rad = win.actualToolSize / 2 + 5;
+                                        var minX = Math.min(drawCanvas.lastX, mouse.x) - rad;
+                                        var minY = Math.min(drawCanvas.lastY, mouse.y) - rad;
+                                        var w = Math.abs(mouse.x - drawCanvas.lastX) + rad*2;
+                                        var h = Math.abs(mouse.y - drawCanvas.lastY) + rad*2;
+                                        
+                                        drawCanvas.lastX = mouse.x;
+                                        drawCanvas.lastY = mouse.y;
+                                        
+                                        drawCanvas.markDirty(Qt.rect(minX, minY, w, h));
+                                        drawCanvas.requestPaint();
+                                    }
                                 }
                             } else {
                                 let dist = Math.sqrt(Math.pow(mouse.x - win.lastHoverX, 2) + Math.pow(mouse.y - win.lastHoverY, 2));
@@ -2282,6 +2532,8 @@ PanelWindow {
                                         let action = win.actionHistory[idx];
                                         if (action) {
                                             rotateAction(action, delta, cx, cy);
+                                            action.isFullyErasedCache = undefined;
+                                            action.minX = undefined;
                                         }
                                     }
                                     
@@ -2331,6 +2583,8 @@ PanelWindow {
                                         let idx = win.selectedElementIndices[i];
                                         let finalAction = cloneAction(win.actionsBeforeResize[i]);
                                         scaleAction(finalAction, scaleX, scaleY, refX, refY);
+                                        finalAction.isFullyErasedCache = undefined;
+                                        finalAction.minX = undefined;
                                         win.actionHistory[idx] = finalAction;
                                     }
                                     
@@ -2351,6 +2605,8 @@ PanelWindow {
                                         let action = win.actionHistory[idx];
                                         if (action) {
                                             win.shiftAction(action, dx, dy);
+                                            action.isFullyErasedCache = undefined;
+                                            action.minX = undefined;
                                         }
                                     }
                                     
@@ -2387,6 +2643,14 @@ PanelWindow {
                             }
 
                             if (win.currentAction) {
+                                // Add a final segment if the last mouse position changed
+                                if (mouse.x !== drawCanvas.lastX || mouse.y !== drawCanvas.lastY) {
+                                    var finalSegment = {
+                                        x1: drawCanvas.lastX, y1: drawCanvas.lastY,
+                                        x2: mouse.x, y2: mouse.y
+                                    };
+                                    win.currentAction.segments.push(finalSegment);
+                                }
                                 win.commitAction(win.currentAction);
                                 win.currentAction = null;
                             }
@@ -2640,6 +2904,8 @@ PanelWindow {
                         win.rotateGrabbed = false;
                         win.actionHistory = [];
                         win.historyStep = -1;
+                        win.jsState.history = [];
+                        win.jsState.step = -1;
                         win.updateSelectionBounds();
                         drawCanvas._replayPending = true;
                         drawCanvas.requestPaint();
