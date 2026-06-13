@@ -813,8 +813,8 @@ PanelWindow {
     property color panelBorderColor: Colours.palette.m3outline
 
     // Zoom limits and World Size
-    property real minZoom: 0.1
-    property real maxZoom: 5.0
+    property real minZoom: 0.05
+    property real maxZoom: 10.0
     property real worldSize: 3072 
 
     // =========================================================
@@ -822,7 +822,7 @@ PanelWindow {
     // =========================================================
     property var actionHistory: []
     property int historyStep: -1
-    property int maxHistory: 50
+    property int maxHistory: 50000
     property var currentAction: null
 
     function calculateStrokeBounds(action) {
@@ -1072,9 +1072,15 @@ PanelWindow {
             }
 
             PinchHandler {
+                id: canvasPinchHandler
                 target: zoomContainer
                 minimumScale: win.minZoom
                 maximumScale: win.maxZoom
+                onActiveChanged: {
+                    if (!active) {
+                        win.triggerReplay();
+                    }
+                }
             }
 
             // =========================================================
@@ -1102,6 +1108,8 @@ PanelWindow {
                             if (win.isPointOverUI(pressPt.x, pressPt.y)) {
                                 win.isCursorOverUIOnPress = true;
                             }
+                        } else {
+                            win.triggerReplay();
                         }
                     }
                 }
@@ -1812,7 +1820,10 @@ PanelWindow {
                     onPaint: {
                         var ctx = getContext("2d");
                         
-                        if (_replayPending) {
+                        var isActivelyDrawing = (win.currentAction !== null);
+                        var isPanningOrZooming = canvasPanHandler.active || canvasPinchHandler.active;
+                        var shouldReplay = _replayPending || (!_clearPending && _queue.length === 0 && !isActivelyDrawing && !isPanningOrZooming);
+                        if (shouldReplay) {
                             ctx.clearRect(0, 0, width, height);
                             for (var h = 0; h <= win.historyStep; h++) {
                                 var action = win.actionHistory[h];
