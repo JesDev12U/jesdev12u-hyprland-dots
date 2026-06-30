@@ -22,7 +22,7 @@ ShellRoot {
     // Load active Caelestia theme colors
     function loadTheme() {
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "file:///home/jesdev12u/.local/state/caelestia/scheme.json", true);
+        xhr.open("GET", "file://" + Quickshell.env("HOME") + "/.local/state/caelestia/scheme.json", true);
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE) {
                 if (xhr.status === 200 || xhr.status === 0) {
