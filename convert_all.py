@@ -82,8 +82,9 @@ def convert_file(in_path, out_path, is_variables=False):
             lines.append(line)
         expanded_content = "\n".join(lines)
     else:
-        # Replace kb variables in content
-        for name, val in kb_vars.items():
+        # Replace kb variables in content (longest first to prevent prefix conflicts)
+        for name in sorted(kb_vars.keys(), key=len, reverse=True):
+            val = kb_vars[name]
             expanded_content = expanded_content.replace(f"${name}", val)
         
     # Parse and generate Lua
