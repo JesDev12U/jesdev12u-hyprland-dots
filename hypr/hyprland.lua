@@ -2,7 +2,8 @@
 ---@module 'hl'
 
 -- Add hyprland subdirectory to package path
-local hypr_dir = os.getenv("HOME") .. "/.config/hypr"
+_G.hypr = os.getenv("HOME") .. "/.config/hypr"
+local hypr_dir = _G.hypr
 package.path = package.path .. ";" .. hypr_dir .. "/hyprland/?.lua"
 
 -- Helper to load variables from a .conf file
