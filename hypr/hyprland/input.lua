@@ -28,6 +28,6 @@ hl.config({
 hl.config({
     cursor = {
         hotspot_padding = 1,
-        no_hardware_cursors = true,
+        no_hardware_cursors = false,
     },
 })
