@@ -55,6 +55,11 @@ def post_process_lua(lua_code, is_variables=False):
         'hl.dispatch(hl.dsp.submap("global"))'
     )
     
+    # Replace startup submap dispatch with delayed safe command to prevent startup lockups
+    old_startup = 'hl.on("hyprland.start", function()\n    hl.dispatch(hl.dsp.submap("global"))\nend)'
+    new_startup = 'hl.on("hyprland.start", function()\n    hl.exec_cmd("sleep 0.5 && hyprctl eval \'hl.dispatch(hl.dsp.submap(\\\"global\\\"))\'")\nend)'
+    lua_code = lua_code.replace(old_startup, new_startup)
+    
     # For variables.lua, extract all local definitions and append return table
     if is_variables:
         local_vars = re.findall(r"^local\s+(\w+)\s*=", lua_code, re.MULTILINE)

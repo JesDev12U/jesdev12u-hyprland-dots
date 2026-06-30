@@ -294,5 +294,5 @@ hl.on("config.reloaded", function()
 end)
 
 hl.on("hyprland.start", function()
-    hl.dispatch(hl.dsp.submap("global"))
+    hl.exec_cmd("sleep 0.5 && hyprctl eval 'hl.dispatch(hl.dsp.submap(\"global\"))'")
 end)
