@@ -9,7 +9,19 @@ HYPR_DIR = os.path.join(WORKSPACE, "hypr")
 HYPRLAND_DIR = os.path.join(HYPR_DIR, "hyprland")
 CAELESTIA_DIR = os.path.join(WORKSPACE, "caelestia")
 
-# 1. Load kb_vars from variables.conf
+def normalize_mods(combo_str):
+    mods_map = {
+        "super": "SUPER",
+        "ctrl": "CTRL",
+        "alt": "ALT",
+        "shift": "SHIFT",
+        "control": "CTRL"
+    }
+    for m, upper_m in mods_map.items():
+        combo_str = re.sub(rf"\b{m}\b", upper_m, combo_str, flags=re.IGNORECASE)
+    return combo_str
+
+# 1. Load kb_vars from variables.conf and normalize them
 var_conf_path = os.path.join(HYPR_DIR, "variables.conf")
 with open(var_conf_path, "r") as f:
     var_content = f.read()
@@ -24,7 +36,7 @@ for line in var_content.splitlines():
         name, val = match.groups()
         val = val.split("#")[0].strip()
         if name.startswith("kb"):
-            kb_vars[name] = val
+            kb_vars[name] = normalize_mods(val)
 
 def post_process_lua(lua_code, is_variables=False):
     # Use lambda to cleanly replace local_var_XYZ with concatenation
@@ -54,9 +66,23 @@ def convert_file(in_path, out_path, is_variables=False):
     with open(in_path, "r") as f:
         content = f.read()
         
-    # Replace kb variables in content (only if not variables.conf itself)
     expanded_content = content
-    if not is_variables:
+    if is_variables:
+        # Normalize modifier casing in variables definitions
+        lines = []
+        for line in content.splitlines():
+            match = re.match(r"^(\s*\$kb\w+\s*=\s*)(.+)$", line)
+            if match:
+                prefix, val = match.groups()
+                comment = ""
+                if "#" in val:
+                    val, comment = val.split("#", 1)
+                    comment = "#" + comment
+                line = prefix + normalize_mods(val) + comment
+            lines.append(line)
+        expanded_content = "\n".join(lines)
+    else:
+        # Replace kb variables in content
         for name, val in kb_vars.items():
             expanded_content = expanded_content.replace(f"${name}", val)
         

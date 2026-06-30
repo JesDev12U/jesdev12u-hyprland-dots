@@ -90,81 +90,81 @@ local cursorSize = 34
 
 -- Workspaces
 
-local kbMoveWinToWs = "Super+Alt"
+local kbMoveWinToWs = "SUPER+ALT"
 
-local kbMoveWinToWsGroup = "Ctrl+Super+Alt"
+local kbMoveWinToWsGroup = "CTRL+SUPER+ALT"
 
-local kbGoToWs = "Super"
+local kbGoToWs = "SUPER"
 
-local kbGoToWsGroup = "Ctrl+Super"
+local kbGoToWsGroup = "CTRL+SUPER"
 
-local kbNextWs = "Ctrl+Super,right"
+local kbNextWs = "CTRL+SUPER,right"
 
-local kbPrevWs = "Ctrl+Super,left"
+local kbPrevWs = "CTRL+SUPER,left"
 
-local kbToggleSpecialWs = "Super,S"
+local kbToggleSpecialWs = "SUPER,S"
 
 -- Window groups
 
-local kbWindowGroupCycleNext = "Alt,Tab"
+local kbWindowGroupCycleNext = "ALT,Tab"
 
-local kbWindowGroupCyclePrev = "Shift+Alt,Tab"
+local kbWindowGroupCyclePrev = "SHIFT+ALT,Tab"
 
-local kbUngroup = "Super,U"
+local kbUngroup = "SUPER,U"
 
-local kbToggleGroup = "Super,Comma"
+local kbToggleGroup = "SUPER,Comma"
 
 -- Window actions
 
-local kbMoveWindow = "Super,Z"
+local kbMoveWindow = "SUPER,Z"
 
-local kbResizeWindow = "Super,X"
+local kbResizeWindow = "SUPER,X"
 
-local kbWindowPip = "Super+Alt,Backslash"
+local kbWindowPip = "SUPER+ALT,Backslash"
 
-local kbPinWindow = "Super,P"
+local kbPinWindow = "SUPER,P"
 
-local kbWindowFullscreen = "Super,F"
+local kbWindowFullscreen = "SUPER,F"
 
-local kbWindowBorderedFullscreen = "Super+Alt,F"
+local kbWindowBorderedFullscreen = "SUPER+ALT,F"
 
-local kbToggleWindowFloating = "Super+Alt,Space"
+local kbToggleWindowFloating = "SUPER+ALT,Space"
 
-local kbCloseWindow = "Super,Q"
+local kbCloseWindow = "SUPER,Q"
 
 -- Special workspace toggles
 
-local kbSystemMonitor = "Ctrl+Shift,Escape"
+local kbSystemMonitor = "CTRL+SHIFT,Escape"
 
-local kbMusic = "Super,M"
+local kbMusic = "SUPER,M"
 
-local kbCommunication = "Super,D"
+local kbCommunication = "SUPER,D"
 
-local kbTodo = "Super,R"
+local kbTodo = "SUPER,R"
 
 -- Apps
 
-local kbTerminal = "Super,T"
+local kbTerminal = "SUPER,T"
 
-local kbBrowser = "Super,B"
+local kbBrowser = "SUPER,B"
 
-local kbEditor = "Super,C"
+local kbEditor = "SUPER,C"
 
-local kbFileExplorer = "Super,E"
+local kbFileExplorer = "SUPER,E"
 
 -- Misc
 
-local kbSession = "Ctrl+Alt,Delete"
+local kbSession = "CTRL+ALT,Delete"
 
-local kbShowSidebar = "Super,N"
+local kbShowSidebar = "SUPER,N"
 
-local kbClearNotifs = "Ctrl+Alt,C"
+local kbClearNotifs = "CTRL+ALT,C"
 
-local kbShowPanels = "Super,K"
+local kbShowPanels = "SUPER,K"
 
-local kbLock = "Super,L"
+local kbLock = "SUPER,L"
 
-local kbRestoreLock = "Super+Alt,L"
+local kbRestoreLock = "SUPER+ALT,L"
 
 return {
     terminal = terminal,
