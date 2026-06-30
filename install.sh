@@ -757,7 +757,20 @@ step_6() {
 
 
     create_symlink "$INSTALL_DIR/hypr" "$CONFIG_DIR/hypr"
-    create_symlink "$INSTALL_DIR/quickshell/caelestia" "$CONFIG_DIR/quickshell/caelestia"
+    
+    # Copiar configuración base oficial de Caelestia y aplicar encima tus cambios personalizados
+    rm -rf "$CONFIG_DIR/quickshell/caelestia"
+    mkdir -p "$CONFIG_DIR/quickshell/caelestia"
+    if [ -d "/etc/xdg/quickshell/caelestia" ]; then
+        log "Copiando archivos base oficiales de Caelestia desde /etc/xdg..." >> "$LOG_FILE" 2>&1
+        cp -r /etc/xdg/quickshell/caelestia/* "$CONFIG_DIR/quickshell/caelestia/" >> "$LOG_FILE" 2>&1
+    else
+        log "ADVERTENCIA: No se encontró la ruta de configuración base /etc/xdg/quickshell/caelestia." >> "$LOG_FILE" 2>&1
+    fi
+    if [ -d "$INSTALL_DIR/quickshell/caelestia" ]; then
+        log "Aplicando tus personalizaciones QML sobre la configuración base..." >> "$LOG_FILE" 2>&1
+        cp -rf "$INSTALL_DIR/quickshell/caelestia/"* "$CONFIG_DIR/quickshell/caelestia/" >> "$LOG_FILE" 2>&1
+    fi
     create_symlink "$INSTALL_DIR/starship.toml" "$CONFIG_DIR/starship.toml"
     create_symlink "$INSTALL_DIR/fastfetch" "$CONFIG_DIR/fastfetch"
     create_symlink "$INSTALL_DIR/btop" "$CONFIG_DIR/btop"
