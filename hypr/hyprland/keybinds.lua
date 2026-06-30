@@ -8,7 +8,7 @@
 hl.define_submap("global", function()
     -- ## Shell keybinds
     -- Launcher release bind
-    hl.bind("Super_L", hl.dsp.global("caelestia:launcher"), { repeating = true, ignore_mods = true })
+    hl.bind("Super_L", hl.dsp.global("caelestia:launcher"), { release = true, ignore_mods = true })
     hl.bind("SUPER" .. " + " .. 1, hl.dsp.global("caelestia:launcherInterrupt"), { ignore_mods = true, non_consuming = true })
     hl.bind("SUPER" .. " + " .. 2, hl.dsp.global("caelestia:launcherInterrupt"), { ignore_mods = true, non_consuming = true })
     hl.bind("SUPER" .. " + " .. 3, hl.dsp.global("caelestia:launcherInterrupt"), { ignore_mods = true, non_consuming = true })
@@ -81,8 +81,8 @@ hl.define_submap("global", function()
     hl.bind("XF86AudioPrev", hl.dsp.global("caelestia:mediaPrev"), { locked = true })
     hl.bind("XF86AudioStop", hl.dsp.global("caelestia:mediaStop"), { locked = true })
     -- Kill/restart
-    hl.bind("CTRL+SUPER+SHIFT" .. " + " .. "R", hl.dsp.exec_cmd("qs -c caelestia kill"), { repeating = true })
-    hl.bind("CTRL+SUPER+ALT" .. " + " .. "R", hl.dsp.exec_cmd("qs -c caelestia kill; sleep . 1; caelestia shell -d"), { repeating = true })
+    hl.bind("CTRL+SUPER+SHIFT" .. " + " .. "R", hl.dsp.exec_cmd("qs -c caelestia kill"), { release = true })
+    hl.bind("CTRL+SUPER+ALT" .. " + " .. "R", hl.dsp.exec_cmd("qs -c caelestia kill; sleep . 1; caelestia shell -d"), { release = true })
     -- Go to workspace #
     local wsaction = "~/.config/hypr/scripts/wsaction.sh"
     hl.bind("SUPER" .. " + " .. 1, hl.dsp.exec_cmd("~/.config/hypr/scripts/wsaction.sh workspace 1"))
