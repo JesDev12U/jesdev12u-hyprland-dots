@@ -49,6 +49,12 @@ def post_process_lua(lua_code, is_variables=False):
     lua_code = re.sub(r'""\s*\.\.\s*', "", lua_code)
     lua_code = re.sub(r'\s*\.\.\s*""', "", lua_code)
     
+    # Replace legacy hyprctl dispatch submap global with native Lua API
+    lua_code = lua_code.replace(
+        'hl.exec_cmd("hyprctl dispatch submap global")',
+        'hl.dispatch(hl.dsp.submap("global"))'
+    )
+    
     # For variables.lua, extract all local definitions and append return table
     if is_variables:
         local_vars = re.findall(r"^local\s+(\w+)\s*=", lua_code, re.MULTILINE)
