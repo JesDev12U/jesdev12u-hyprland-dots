@@ -105,8 +105,7 @@ echo -e "${NC}"
 
 if [ "$IS_DERIVATIVE" -eq 1 ]; then
     echo -e "${YELLOW}:: Se detectó una derivada de Arch Linux: ${OS_NAME}${NC}"
-    echo -e "${YELLOW}:: Para evitar dañar el sistema, se omitirá la modificación directa de /etc/pacman.conf${NC}"
-    echo -e "${YELLOW}:: y /etc/default/grub. Se aplicará el tema estético de GRUB de forma segura.${NC}"
+    echo -e "${YELLOW}:: Para evitar dañar el sistema, se omitirá por completo la modificación de /etc/pacman.conf y GRUB.${NC}"
     echo ""
 fi
 
