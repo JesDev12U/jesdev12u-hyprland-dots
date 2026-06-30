@@ -59,6 +59,20 @@ def post_process_lua(lua_code, is_variables=False):
     new_start = 'hl.on("hyprland.start", function()\n    hl.exec_cmd("sleep 0.5 && hyprctl eval \'hl.dispatch(hl.dsp.submap(\\\"global\\\"))\'")\nend)'
     lua_code = lua_code.replace(old_start, new_start)
     
+    # Replace tilde paths inside Lua double quotes with dynamic os.getenv("HOME")
+    lua_code = re.sub(
+        r'"~/\.config/',
+        r'os.getenv("HOME") .. "/.config/',
+        lua_code
+    )
+    
+    # Replace hardcoded home directories with dynamic os.getenv("HOME")
+    lua_code = re.sub(
+        r'"/home/[^/]+/',
+        r'os.getenv("HOME") .. "/',
+        lua_code
+    )
+    
     # For variables.lua, extract all local definitions and append return table
     if is_variables:
         local_vars = re.findall(r"^local\s+(\w+)\s*=", lua_code, re.MULTILINE)
