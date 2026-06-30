@@ -33,6 +33,9 @@
 -- Start shell
 
 
+-- Stuck cursor workaround (forces Hyprland to reset the ghost cursor from SDDM/KDE)
+
+
 -- Autostart
 hl.on("hyprland.start", function()
     hl.exec_cmd("gnome-keyring-daemon --start --components=secrets")
@@ -48,4 +51,5 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("mpris-proxy")
     hl.exec_cmd("caelestia resizer -d")
     hl.exec_cmd("caelestia shell -d")
+    hl.exec_cmd(os.getenv("HOME") .. "/.config/hypr/scripts/reset_cursor.sh")
 end)
