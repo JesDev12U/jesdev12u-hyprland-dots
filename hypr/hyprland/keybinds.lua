@@ -292,3 +292,7 @@ hl.bind("SUPER+SHIFT" .. " + " .. "mouse_up", hl.dsp.focus({ workspace = "+1" })
 hl.on("config.reloaded", function()
     hl.exec_cmd("hyprctl dispatch submap global")
 end)
+
+hl.on("hyprland.start", function()
+    hl.exec_cmd("hyprctl dispatch submap global")
+end)
