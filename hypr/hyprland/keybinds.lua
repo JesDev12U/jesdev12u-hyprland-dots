@@ -290,7 +290,7 @@ hl.bind("SUPER+SHIFT" .. " + " .. "mouse_up", hl.dsp.focus({ workspace = "+1" })
 
 -- Exec (run every reload)
 hl.on("config.reloaded", function()
-    hl.dispatch(hl.dsp.submap("global"))
+    hl.exec_cmd("sleep 0.1 && hyprctl eval 'hl.dispatch(hl.dsp.submap(\"global\"))'")
 end)
 
 hl.on("hyprland.start", function()
