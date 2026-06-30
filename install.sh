@@ -76,6 +76,21 @@ if [ ! -f /etc/arch-release ]; then
     exit 1
 fi
 
+# Detect if running on an Arch Linux derivative (e.g. CachyOS, EndeavourOS, Manjaro)
+IS_DERIVATIVE=0
+OS_NAME="Arch Linux"
+if [ -f /etc/os-release ]; then
+    OS_ID=$(grep -E '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"'\' || echo "arch")
+    OS_NAME=$(grep -E '^NAME=' /etc/os-release | cut -d= -f2 | tr -d '"'\' || echo "Arch Linux")
+    OS_ID_LIKE=$(grep -E '^ID_LIKE=' /etc/os-release | cut -d= -f2 | tr -d '"'\' || echo "")
+    
+    if [ "$OS_ID" != "arch" ]; then
+        if [[ "$OS_ID_LIKE" == *"arch"* ]] || [ -f /etc/arch-release ]; then
+            IS_DERIVATIVE=1
+        fi
+    fi
+fi
+
 # Banner
 echo -e "${MAGENTA}"
 echo '     ██╗███████╗███████╗██████╗ ███████╗██╗   ██╗ ██╗██████╗ ██╗   ██╗'
@@ -87,6 +102,13 @@ echo ' ╚════╝ ╚══════╝╚══════╝╚═
 echo -e "            ${YELLOW}\"Mis Dots de Hyprland forkeados de Caelestia\"${NC}"
 echo '                 - Custom Clean POSIX Shell Installer -'
 echo -e "${NC}"
+
+if [ "$IS_DERIVATIVE" -eq 1 ]; then
+    echo -e "${YELLOW}:: Se detectó una derivada de Arch Linux: ${OS_NAME}${NC}"
+    echo -e "${YELLOW}:: Para evitar dañar el sistema, se omitirá la modificación directa de /etc/pacman.conf${NC}"
+    echo -e "${YELLOW}:: y /etc/default/grub. Se aplicará el tema estético de GRUB de forma segura.${NC}"
+    echo ""
+fi
 
 # Preguntar sobre el respaldo al inicio solo si existe la carpeta ~/.config
 BACKUP_CONFIG=0
@@ -620,6 +642,11 @@ step_1() {
 }
 
 step_2() {
+    if [ "$IS_DERIVATIVE" -eq 1 ]; then
+        log "Se detectó la derivada '$OS_NAME'. Se omite la copia de pacman.conf para preservar la configuración y repositorios específicos de la distribución." >> "$LOG_FILE" 2>&1
+        return 2
+    fi
+
     if [ -f "$INSTALL_DIR/pacman.conf" ]; then
         log "Aplicando configuración de pacman.conf (multilib, ILoveCandy, etc.)...." >> "$LOG_FILE" 2>&1
         if [ ! -f /etc/pacman.conf.bak ]; then
@@ -807,10 +834,16 @@ step_9() {
             if [ ! -f /etc/default/grub.bak ]; then
                 sudo cp /etc/default/grub /etc/default/grub.bak >> "$LOG_FILE" 2>&1
             fi
-            if [ -f "$INSTALL_DIR/grub" ]; then
-                log "Copiando archivo grub personalizado del repositorio..." >> "$LOG_FILE" 2>&1
-                sudo cp "$INSTALL_DIR/grub" /etc/default/grub >> "$LOG_FILE" 2>&1
+            
+            if [ "$IS_DERIVATIVE" -ne 1 ]; then
+                if [ -f "$INSTALL_DIR/grub" ]; then
+                    log "Copiando archivo grub personalizado del repositorio..." >> "$LOG_FILE" 2>&1
+                    sudo cp "$INSTALL_DIR/grub" /etc/default/grub >> "$LOG_FILE" 2>&1
+                fi
+            else
+                log "Se detectó la derivada '$OS_NAME'. Se omite la copia completa de /etc/default/grub para preservar los parámetros de arranque." >> "$LOG_FILE" 2>&1
             fi
+            
             if grep -q "^GRUB_THEME=" /etc/default/grub; then
                 sudo sed -i 's|^GRUB_THEME=.*|GRUB_THEME="/boot/grub/themes/custom-theme/theme.txt"|' /etc/default/grub >> "$LOG_FILE" 2>&1
             else
