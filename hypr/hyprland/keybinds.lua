@@ -8,7 +8,7 @@
 hl.define_submap("global", function()
     -- ## Shell keybinds
     -- Launcher release bind
-    hl.bind("Super_L", hl.dsp.global("caelestia:launcher"), { release = true, ignore_mods = true })
+    hl.bind("SUPER" .. " + " .. "Super_L", hl.dsp.global("caelestia:launcher"), { release = true, ignore_mods = true })
     hl.bind("SUPER" .. " + " .. 1, hl.dsp.global("caelestia:launcherInterrupt"), { ignore_mods = true, non_consuming = true })
     hl.bind("SUPER" .. " + " .. 2, hl.dsp.global("caelestia:launcherInterrupt"), { ignore_mods = true, non_consuming = true })
     hl.bind("SUPER" .. " + " .. 3, hl.dsp.global("caelestia:launcherInterrupt"), { ignore_mods = true, non_consuming = true })
