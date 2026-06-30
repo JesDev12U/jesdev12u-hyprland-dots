@@ -824,34 +824,32 @@ step_9() {
         sudo systemctl enable sddm.service >> "$LOG_FILE" 2>&1 || true
     fi
     
-    if [ -d "$INSTALL_DIR/grub-theme" ]; then
-        log "Instalando tema de GRUB..." >> "$LOG_FILE" 2>&1
-        sudo mkdir -p /boot/grub/themes/custom-theme >> "$LOG_FILE" 2>&1
-        sudo cp -r "$INSTALL_DIR/grub-theme/"* /boot/grub/themes/custom-theme/ >> "$LOG_FILE" 2>&1
-        
-        if [ -f /etc/default/grub ]; then
-            log "Configurando /etc/default/grub..." >> "$LOG_FILE" 2>&1
-            if [ ! -f /etc/default/grub.bak ]; then
-                sudo cp /etc/default/grub /etc/default/grub.bak >> "$LOG_FILE" 2>&1
-            fi
+    if [ "$IS_DERIVATIVE" -ne 1 ]; then
+        if [ -d "$INSTALL_DIR/grub-theme" ]; then
+            log "Instalando tema de GRUB..." >> "$LOG_FILE" 2>&1
+            sudo mkdir -p /boot/grub/themes/custom-theme >> "$LOG_FILE" 2>&1
+            sudo cp -r "$INSTALL_DIR/grub-theme/"* /boot/grub/themes/custom-theme/ >> "$LOG_FILE" 2>&1
             
-            if [ "$IS_DERIVATIVE" -ne 1 ]; then
+            if [ -f /etc/default/grub ]; then
+                log "Configurando /etc/default/grub..." >> "$LOG_FILE" 2>&1
+                if [ ! -f /etc/default/grub.bak ]; then
+                    sudo cp /etc/default/grub /etc/default/grub.bak >> "$LOG_FILE" 2>&1
+                fi
                 if [ -f "$INSTALL_DIR/grub" ]; then
                     log "Copiando archivo grub personalizado del repositorio..." >> "$LOG_FILE" 2>&1
                     sudo cp "$INSTALL_DIR/grub" /etc/default/grub >> "$LOG_FILE" 2>&1
                 fi
-            else
-                log "Se detectó la derivada '$OS_NAME'. Se omite la copia completa de /etc/default/grub para preservar los parámetros de arranque." >> "$LOG_FILE" 2>&1
+                if grep -q "^GRUB_THEME=" /etc/default/grub; then
+                    sudo sed -i 's|^GRUB_THEME=.*|GRUB_THEME="/boot/grub/themes/custom-theme/theme.txt"|' /etc/default/grub >> "$LOG_FILE" 2>&1
+                else
+                    sudo bash -c 'echo "GRUB_THEME=\"/boot/grub/themes/custom-theme/theme.txt\"" >> /etc/default/grub' >> "$LOG_FILE" 2>&1
+                fi
+                log "Regenerando configuración de GRUB (grub-mkconfig)..." >> "$LOG_FILE" 2>&1
+                sudo grub-mkconfig -o /boot/grub/grub.cfg >> "$LOG_FILE" 2>&1 || true
             fi
-            
-            if grep -q "^GRUB_THEME=" /etc/default/grub; then
-                sudo sed -i 's|^GRUB_THEME=.*|GRUB_THEME="/boot/grub/themes/custom-theme/theme.txt"|' /etc/default/grub >> "$LOG_FILE" 2>&1
-            else
-                sudo bash -c 'echo "GRUB_THEME=\"/boot/grub/themes/custom-theme/theme.txt\"" >> /etc/default/grub' >> "$LOG_FILE" 2>&1
-            fi
-            log "Regenerando configuración de GRUB (grub-mkconfig)..." >> "$LOG_FILE" 2>&1
-            sudo grub-mkconfig -o /boot/grub/grub.cfg >> "$LOG_FILE" 2>&1 || true
         fi
+    else
+        log "Se detectó la derivada '$OS_NAME'. Se omite por completo la configuración de GRUB." >> "$LOG_FILE" 2>&1
     fi
 }
 
